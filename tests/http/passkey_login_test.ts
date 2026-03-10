@@ -14,6 +14,7 @@ Deno.test("POST /login/begin returns assertion options for a known account", asy
   if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
   const body = await res.json();
   if (!body.challenge) throw new Error("missing challenge");
+  if (!body.flowToken) throw new Error("missing flowToken");
   if (!Array.isArray(body.allowCredentials)) throw new Error("missing allowCredentials");
 });
 
@@ -48,10 +49,11 @@ Deno.test("POST /login/complete accepts a valid assertion response", async () =>
   const completeRes = await app.request("/login/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(assertion),
+    body: JSON.stringify({ ...assertion, flowToken: requestOptions.flowToken }),
   });
 
   if (completeRes.status !== 200) throw new Error(`expected 200, got ${completeRes.status}`);
+  if (!completeRes.headers.get("set-cookie")) throw new Error("missing auth cookie");
 
   const storedCredential = state.credentials.get(seeded.credential.id);
   if (!storedCredential) throw new Error("credential missing after login");
@@ -61,44 +63,82 @@ Deno.test("POST /login/complete accepts a valid assertion response", async () =>
   if (state.sessions.length !== 1) throw new Error(`expected 1 auth session, got ${state.sessions.length}`);
 });
 
-Deno.test("POST /login/complete rejects a wrong challenge", async () => {
+Deno.test("POST /login/complete rejects a missing flow token", async () => {
   const { app, seedUserWithPasskey } = await createTestApp();
   const seeded = await seedUserWithPasskey("alice");
 
+  const beginRes = await app.request("/login/begin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: seeded.username }),
+  });
+  const requestOptions = await beginRes.json();
+
   const generated = await runLoginResponse({
     origin: "http://localhost",
-    requestOptions: {
-      challenge: "wrong-challenge",
-      rpId: "localhost",
-      allowCredentials: [{ id: seeded.credential.id, type: "public-key" }],
-    },
+    requestOptions,
     credential: seeded.credential,
   });
-  const assertion = generated.assertionResponse;
 
   const res = await app.request("/login/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(assertion),
+    body: JSON.stringify(generated.assertionResponse),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
   const body = await res.json();
-  if (body.error !== "authentication_session_not_found") {
-    throw new Error(`expected authentication_session_not_found, got ${body.error}`);
+  if (body.error !== "missing_flow_token") {
+    throw new Error(`expected missing_flow_token, got ${body.error}`);
   }
 });
 
-Deno.test("POST /login/complete rejects a missing session", async () => {
+Deno.test("POST /login/complete rejects a tampered flow token", async () => {
   const { app, seedUserWithPasskey } = await createTestApp();
   const seeded = await seedUserWithPasskey("alice");
+
+  const beginRes = await app.request("/login/begin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: seeded.username }),
+  });
+  const requestOptions = await beginRes.json();
+
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions,
+    credential: seeded.credential,
+  });
+
+  const res = await app.request("/login/complete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...generated.assertionResponse, flowToken: "bad-flow-token" }),
+  });
+
+  if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
+  const body = await res.json();
+  if (body.error !== "invalid_flow_token") {
+    throw new Error(`expected invalid_flow_token, got ${body.error}`);
+  }
+});
+
+Deno.test("POST /login/complete rejects a wrong challenge", async () => {
+  const { app, seedUserWithPasskey } = await createTestApp();
+  const seeded = await seedUserWithPasskey("alice");
+
+  const beginRes = await app.request("/login/begin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: seeded.username }),
+  });
+  const requestOptions = await beginRes.json();
 
   const generated = await runLoginResponse({
     origin: "http://localhost",
     requestOptions: {
-      challenge: "missing-session",
-      rpId: "localhost",
-      allowCredentials: [{ id: seeded.credential.id, type: "public-key" }],
+      ...requestOptions,
+      challenge: "wrong-challenge",
     },
     credential: seeded.credential,
   });
@@ -107,7 +147,7 @@ Deno.test("POST /login/complete rejects a missing session", async () => {
   const res = await app.request("/login/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(assertion),
+    body: JSON.stringify({ ...assertion, flowToken: requestOptions.flowToken }),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
@@ -141,7 +181,7 @@ Deno.test("POST /login/complete rejects an unknown credential id", async () => {
   const res = await app.request("/login/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(assertion),
+    body: JSON.stringify({ ...assertion, flowToken: requestOptions.flowToken }),
   });
 
   if (res.status !== 404) throw new Error(`expected 404, got ${res.status}`);
@@ -152,7 +192,7 @@ Deno.test("POST /login/complete rejects an unknown credential id", async () => {
 });
 
 Deno.test("POST /login/complete rejects a credential not owned by the user", async () => {
-  const { app, seedUserWithPasskey, state } = await createTestApp();
+  const { app, seedUserWithPasskey } = await createTestApp();
   const alice = await seedUserWithPasskey("alice");
   const bob = await seedUserWithPasskey("bob");
 
@@ -170,14 +210,10 @@ Deno.test("POST /login/complete rejects a credential not owned by the user", asy
   });
   const assertion = generated.assertionResponse;
 
-  const session = state.authenticationSessions.get(requestOptions.challenge);
-  if (!session) throw new Error("missing authentication session");
-  session.allowedCredentialIds.push(bob.credential.id);
-
   const res = await app.request("/login/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(assertion),
+    body: JSON.stringify({ ...assertion, flowToken: requestOptions.flowToken }),
   });
 
   if (res.status !== 403) throw new Error(`expected 403, got ${res.status}`);
@@ -214,7 +250,7 @@ Deno.test("POST /login/complete rejects a counter rollback", async () => {
   const res = await app.request("/login/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(assertion),
+    body: JSON.stringify({ ...assertion, flowToken: requestOptions.flowToken }),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
@@ -238,16 +274,7 @@ Deno.test("POST /login/complete rejects an origin mismatch", async () => {
   const generated = await runLoginResponse({
     origin: "http://localhost",
     requestOptions,
-    credential: {
-      id: seeded.credential.id,
-      userId: seeded.credential.userId,
-      rpId: seeded.credential.rpId,
-      algorithm: seeded.credential.algorithm,
-      publicKey: seeded.credential.publicKey,
-      publicKeyPem: seeded.credential.publicKeyPem,
-      privateKeyPem: seeded.credential.privateKeyPem,
-      signCount: seeded.credential.signCount,
-    },
+    credential: seeded.credential,
   });
   const assertion = generated.assertionResponse;
   const clientData = JSON.parse(atob(assertion.response.clientDataJSON.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((assertion.response.clientDataJSON.length + 3) % 4)));
@@ -257,7 +284,7 @@ Deno.test("POST /login/complete rejects an origin mismatch", async () => {
   const res = await app.request("/login/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(assertion),
+    body: JSON.stringify({ ...assertion, flowToken: requestOptions.flowToken }),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
@@ -281,16 +308,7 @@ Deno.test("POST /login/complete rejects a tampered signature", async () => {
   const generated = await runLoginResponse({
     origin: "http://localhost",
     requestOptions,
-    credential: {
-      id: seeded.credential.id,
-      userId: seeded.credential.userId,
-      rpId: seeded.credential.rpId,
-      algorithm: seeded.credential.algorithm,
-      publicKey: seeded.credential.publicKey,
-      publicKeyPem: seeded.credential.publicKeyPem,
-      privateKeyPem: seeded.credential.privateKeyPem,
-      signCount: seeded.credential.signCount,
-    },
+    credential: seeded.credential,
   });
   const assertion = generated.assertionResponse;
   assertion.response.signature = assertion.response.signature.slice(0, -2) + "ab";
@@ -298,7 +316,7 @@ Deno.test("POST /login/complete rejects a tampered signature", async () => {
   const res = await app.request("/login/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(assertion),
+    body: JSON.stringify({ ...assertion, flowToken: requestOptions.flowToken }),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
@@ -322,35 +340,26 @@ Deno.test("POST /login/complete rejects a replayed assertion", async () => {
   const generated = await runLoginResponse({
     origin: "http://localhost",
     requestOptions,
-    credential: {
-      id: seeded.credential.id,
-      userId: seeded.credential.userId,
-      rpId: seeded.credential.rpId,
-      algorithm: seeded.credential.algorithm,
-      publicKey: seeded.credential.publicKey,
-      publicKeyPem: seeded.credential.publicKeyPem,
-      privateKeyPem: seeded.credential.privateKeyPem,
-      signCount: seeded.credential.signCount,
-    },
+    credential: seeded.credential,
   });
   const assertion = generated.assertionResponse;
 
   const firstRes = await app.request("/login/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(assertion),
+    body: JSON.stringify({ ...assertion, flowToken: requestOptions.flowToken }),
   });
   if (firstRes.status !== 200) throw new Error(`expected initial 200, got ${firstRes.status}`);
 
   const secondRes = await app.request("/login/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(assertion),
+    body: JSON.stringify({ ...assertion, flowToken: requestOptions.flowToken }),
   });
 
   if (secondRes.status !== 400) throw new Error(`expected 400, got ${secondRes.status}`);
   const body = await secondRes.json();
-  if (body.error !== "authentication_session_not_found") {
-    throw new Error(`expected authentication_session_not_found, got ${body.error}`);
+  if (body.error !== "sign_count_rollback") {
+    throw new Error(`expected sign_count_rollback, got ${body.error}`);
   }
 });

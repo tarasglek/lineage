@@ -1,6 +1,12 @@
 import { runLoginResponse, runRegisterResponse } from "../helpers/passkey_helper_cli.ts";
 import { createTestApp } from "../helpers/test_app.ts";
 
+// Story:
+// - provider root bootstraps Alice with a user invite
+// - Alice adds two more devices and invites Bob
+// - Bob registers, adds three more devices, and all devices log in
+// - the test proves SSR invite pages use real auth cookies, WebAuthn uses JSON begin/complete,
+//   device invites attach to the existing user, and inviter ancestry is stored correctly
 Deno.test("SSR trust chain story covers two invited users and many devices", async () => {
   const t = await createTestApp();
   type StoryCredential = {
@@ -14,7 +20,7 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     signCount: number;
     transports?: string[];
   };
-  type StoryRegistration = { userId: string; username: string; credential: StoryCredential };
+  type StoryRegistration = { userId: string; username: string; credential: StoryCredential; authCookie: string };
   type StoryInvite = { token: string; type: "user" | "device"; inviterUserId: string | null; targetUserId?: string };
 
   async function loadBootstrapRegistrationPage(): Promise<void> {
@@ -65,14 +71,17 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     const completeRes = await t.app.request("/register/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(generated.attestationResponse),
+      body: JSON.stringify({ ...generated.attestationResponse, flowToken: creationOptions.flowToken }),
     });
     if (completeRes.status !== 200) throw new Error(`expected complete 200, got ${completeRes.status}`);
+    const authCookie = completeRes.headers.get("set-cookie");
+    if (!authCookie) throw new Error("missing registration auth cookie");
     const body = await completeRes.json();
 
     return {
       userId: body.userId,
       username: body.username,
+      authCookie,
       credential: {
         id: generated.credential.id,
         userId: body.userId,
@@ -88,17 +97,19 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
   }
 
   async function createInviteThroughForm(input: {
+    authCookie: string;
     inviterUserId: string;
     type: "user" | "device";
     label: string;
     targetUserId?: string;
   }): Promise<StoryInvite> {
     const query = new URLSearchParams({
-      inviterUserId: input.inviterUserId,
       type: input.type,
       ...(input.targetUserId ? { targetUserId: input.targetUserId } : {}),
     });
-    const pageRes = await t.app.request(`/invites/new?${query.toString()}`);
+    const pageRes = await t.app.request(`/invites/new?${query.toString()}`, {
+      headers: { cookie: input.authCookie },
+    });
     if (pageRes.status !== 200) throw new Error(`expected invite page 200, got ${pageRes.status}`);
     const pageHtml = await pageRes.text();
     if (!pageHtml.includes('<form method="post" action="/invites">')) {
@@ -107,7 +118,10 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
 
     const formRes = await t.app.request("/invites", {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: input.authCookie,
+      },
       body: new URLSearchParams({
         inviterUserId: input.inviterUserId,
         type: input.type,
@@ -130,18 +144,8 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
 
   async function loginWithCredential(input: {
     username: string;
-    credential: {
-      id: string;
-      userId: string;
-      rpId: string;
-      algorithm: number;
-      publicKey: string;
-      publicKeyPem?: string;
-      privateKeyPem?: string;
-      signCount: number;
-      transports?: string[];
-    };
-  }): Promise<void> {
+    credential: StoryCredential;
+  }): Promise<string> {
     const sessionsBefore = t.state.sessions.length;
     const beginRes = await t.app.request("/login/begin", {
       method: "POST",
@@ -158,9 +162,11 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     const completeRes = await t.app.request("/login/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(generated.assertionResponse),
+      body: JSON.stringify({ ...generated.assertionResponse, flowToken: requestOptions.flowToken }),
     });
     if (completeRes.status !== 200) throw new Error(`expected login complete 200, got ${completeRes.status}`);
+    const authCookie = completeRes.headers.get("set-cookie");
+    if (!authCookie) throw new Error("missing login auth cookie");
     const body = await completeRes.json();
     if (body.userId !== input.credential.userId) {
       throw new Error(`expected login userId ${input.credential.userId}, got ${body.userId}`);
@@ -174,6 +180,32 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     const sessionsAfter = t.state.sessions.length;
     if (sessionsAfter !== sessionsBefore + 1) {
       throw new Error(`expected sessions to increment from ${sessionsBefore} to ${sessionsBefore + 1}, got ${sessionsAfter}`);
+    }
+    return authCookie;
+  }
+
+  async function assertAccountPage(authCookie: string, expected: {
+    username: string;
+    invitedBy?: string | null;
+    credentialCount: number;
+    inviteTokens: string[];
+  }) {
+    const res = await t.app.request("/account", {
+      headers: { cookie: authCookie },
+    });
+    if (res.status !== 200) throw new Error(`expected account page 200, got ${res.status}`);
+    const html = await res.text();
+    if (!html.includes(`data-username="${expected.username}"`)) throw new Error("missing account username");
+    const invitedBy = expected.invitedBy ?? "";
+    if (!html.includes(`data-invited-by="${invitedBy}"`)) throw new Error("missing account invitedBy");
+    const credentialMatches = html.match(/data-credential-id="/g) ?? [];
+    if (credentialMatches.length !== expected.credentialCount) {
+      throw new Error(`expected ${expected.credentialCount} credentials on account page, got ${credentialMatches.length}`);
+    }
+    for (const inviteToken of expected.inviteTokens) {
+      if (!html.includes(`data-invite-token="${inviteToken}"`)) {
+        throw new Error(`missing invite ${inviteToken} on account page`);
+      }
     }
   }
 
@@ -226,12 +258,14 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
   });
 
   const alicePhoneInvite = await createInviteThroughForm({
+    authCookie: firstUser.authCookie,
     inviterUserId: firstUser.userId,
     type: "device",
     label: "alice-phone",
     targetUserId: firstUser.userId,
   });
   const aliceLaptopInvite = await createInviteThroughForm({
+    authCookie: firstUser.authCookie,
     inviterUserId: firstUser.userId,
     type: "device",
     label: "alice-laptop",
@@ -252,6 +286,7 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
   if (usersAfterAliceDevices !== 2) throw new Error(`expected root + alice after alice devices, got ${usersAfterAliceDevices}`);
 
   const secondUserInvite = await createInviteThroughForm({
+    authCookie: firstUser.authCookie,
     inviterUserId: firstUser.userId,
     type: "user",
     label: "bob-user",
@@ -263,18 +298,21 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
   });
 
   const bobPhoneInvite = await createInviteThroughForm({
+    authCookie: secondUser.authCookie,
     inviterUserId: secondUser.userId,
     type: "device",
     label: "bob-phone",
     targetUserId: secondUser.userId,
   });
   const bobTabletInvite = await createInviteThroughForm({
+    authCookie: secondUser.authCookie,
     inviterUserId: secondUser.userId,
     type: "device",
     label: "bob-tablet",
     targetUserId: secondUser.userId,
   });
   const bobLaptopInvite = await createInviteThroughForm({
+    authCookie: secondUser.authCookie,
     inviterUserId: secondUser.userId,
     type: "device",
     label: "bob-laptop",
@@ -299,13 +337,26 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
   const usersAfterBobDevices = t.state.users.size;
   if (usersAfterBobDevices !== 3) throw new Error(`expected root + two users after bob devices, got ${usersAfterBobDevices}`);
 
-  await loginWithCredential({ username: firstUser.username, credential: firstUser.credential });
+  const aliceLoginCookie = await loginWithCredential({ username: firstUser.username, credential: firstUser.credential });
   await loginWithCredential({ username: firstUser.username, credential: alicePhone.credential });
   await loginWithCredential({ username: firstUser.username, credential: aliceLaptop.credential });
-  await loginWithCredential({ username: secondUser.username, credential: secondUser.credential });
+  const bobLoginCookie = await loginWithCredential({ username: secondUser.username, credential: secondUser.credential });
   await loginWithCredential({ username: secondUser.username, credential: bobPhone.credential });
   await loginWithCredential({ username: secondUser.username, credential: bobTablet.credential });
   await loginWithCredential({ username: secondUser.username, credential: bobLaptop.credential });
+
+  await assertAccountPage(aliceLoginCookie, {
+    username: firstUser.username,
+    invitedBy: t.providerRootUserId,
+    credentialCount: 3,
+    inviteTokens: [alicePhoneInvite.token, aliceLaptopInvite.token, secondUserInvite.token],
+  });
+  await assertAccountPage(bobLoginCookie, {
+    username: secondUser.username,
+    invitedBy: firstUser.userId,
+    credentialCount: 4,
+    inviteTokens: [bobPhoneInvite.token, bobTabletInvite.token, bobLaptopInvite.token],
+  });
 
   assertTrustChain();
 });

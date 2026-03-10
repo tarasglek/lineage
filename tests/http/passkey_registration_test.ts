@@ -16,6 +16,7 @@ Deno.test("POST /register/begin returns WebAuthn creation options for a valid in
   const body = await res.json();
   if (!body.challenge) throw new Error("missing challenge");
   if (!body.user) throw new Error("missing user");
+  if (!body.flowToken) throw new Error("missing flowToken");
 });
 
 Deno.test("POST /register/begin rejects a missing invite", async () => {
@@ -108,7 +109,7 @@ Deno.test("POST /register/complete accepts a valid attestation response", async 
   const completeRes = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(attestation),
+    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
   });
 
   if (completeRes.status !== 200) throw new Error(`expected 200, got ${completeRes.status}`);
@@ -120,7 +121,36 @@ Deno.test("POST /register/complete accepts a valid attestation response", async 
   if (!invite?.usedAt) throw new Error("invite was not consumed");
 });
 
-Deno.test("POST /register/complete rejects a missing stored challenge", async () => {
+Deno.test("POST /register/complete rejects a missing flow token", async () => {
+  const { app, seedInvite } = await createTestApp();
+  const inviteToken = await seedInvite();
+
+  const beginRes = await app.request("/register/begin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ inviteToken, username: "alice" }),
+  });
+  const creationOptions = await beginRes.json();
+  const generated = await runRegisterResponse({
+    origin: "http://localhost",
+    creationOptions,
+  });
+  const attestation = generated.attestationResponse;
+
+  const res = await app.request("/register/complete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(attestation),
+  });
+
+  if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
+  const body = await res.json();
+  if (body.error !== "missing_flow_token") {
+    throw new Error(`expected missing_flow_token, got ${body.error}`);
+  }
+});
+
+Deno.test("POST /register/complete rejects a tampered flow token", async () => {
   const { app } = await createTestApp();
   const generated = await runRegisterResponse({
     origin: "http://localhost",
@@ -136,13 +166,46 @@ Deno.test("POST /register/complete rejects a missing stored challenge", async ()
   const res = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(attestation),
+    body: JSON.stringify({ ...attestation, flowToken: "bad-flow-token" }),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
   const body = await res.json();
-  if (body.error !== "registration_session_not_found") {
-    throw new Error(`expected registration_session_not_found, got ${body.error}`);
+  if (body.error !== "invalid_flow_token") {
+    throw new Error(`expected invalid_flow_token, got ${body.error}`);
+  }
+});
+
+Deno.test("POST /register/complete rejects an expired flow token", async () => {
+  const { app, seedInvite } = await createTestApp();
+  const inviteToken = await seedInvite({ expiresAt: Date.now() + 60_000 });
+
+  const beginRes = await app.request("/register/begin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ inviteToken, username: "alice" }),
+  });
+  const creationOptions = await beginRes.json();
+  const parts = String(creationOptions.flowToken).split(".");
+  if (parts.length !== 3) throw new Error("expected jwt");
+  const payloadJson = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/") + "===".slice((parts[1].length + 3) % 4)));
+  payloadJson.exp = Math.floor(Date.now() / 1000) - 10;
+  const expiredPayload = btoa(JSON.stringify(payloadJson)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const expiredFlowToken = `${parts[0]}.${expiredPayload}.${parts[2]}`;
+
+  const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
+  const attestation = generated.attestationResponse;
+
+  const res = await app.request("/register/complete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...attestation, flowToken: expiredFlowToken }),
+  });
+
+  if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
+  const body = await res.json();
+  if (body.error !== "invalid_flow_token") {
+    throw new Error(`expected invalid_flow_token, got ${body.error}`);
   }
 });
 
@@ -163,20 +226,20 @@ Deno.test("POST /register/complete rejects a replayed completion request", async
   const firstRes = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(attestation),
+    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
   });
   if (firstRes.status !== 200) throw new Error(`expected initial 200, got ${firstRes.status}`);
 
   const secondRes = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(attestation),
+    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
   });
 
-  if (secondRes.status !== 400) throw new Error(`expected 400, got ${secondRes.status}`);
+  if (secondRes.status !== 409) throw new Error(`expected 409, got ${secondRes.status}`);
   const body = await secondRes.json();
-  if (body.error !== "registration_session_not_found") {
-    throw new Error(`expected registration_session_not_found, got ${body.error}`);
+  if (body.error !== "invite_already_used") {
+    throw new Error(`expected invite_already_used, got ${body.error}`);
   }
 });
 
@@ -201,7 +264,7 @@ Deno.test("POST /register/complete rejects a reused invite", async () => {
   const res = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(attestation),
+    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
   });
 
   if (res.status !== 409) throw new Error(`expected 409, got ${res.status}`);
@@ -231,7 +294,7 @@ Deno.test("POST /register/complete rejects an origin mismatch", async () => {
   const res = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(attestation),
+    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
@@ -261,7 +324,7 @@ Deno.test("POST /register/complete rejects an RP ID mismatch", async () => {
   const res = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(attestation),
+    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);

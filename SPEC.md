@@ -1,4 +1,4 @@
-# passkey invite-network
+# Lineage invite-network
 
 A standalone, self-hosted login and identity provider for private communities.
 
@@ -20,7 +20,6 @@ Authentication uses passkeys instead of passwords because they provide phishing-
 - No password-based or email-based authentication.
 - No dependency on major external identity providers.
 - No server access to plaintext user keys or protected app data.
-- Not a general-purpose application platform; remains an identity layer.
 
 ## Core model
 Invitation relationships are preserved as a long-lived trust graph. This makes it possible to trace how access entered the network and to prune abusive branches when necessary. Self-invites are allowed, which lets users intentionally create additional descendants under their own identity.
@@ -73,13 +72,13 @@ The trust graph may eventually support subtree-level policy flags.
 - A hybrid path could use OIDC for authentication, public keys for simple encryption cases, and iframe/RPC mechanisms for more sensitive operations.
 
 ## Tech stack
+- latest ts via vite
 - deno impl to start with
 - uuids are all v6
 - future impl should work on cloudflare workers
 - hono to abstract server runtime, hono html template literals https://hono.dev/docs/helpers/html and for fully functional components (eg SSR)
 - static/ directory for static css/html/headers/footers/etc
 - mobile-friendly css
-- latest vite
 - https://github.com/passwordless-id/webauthn is the core of our auth
 - https://docs.deno.com/api/node/sqlite/ for db
 - https://words.filippo.io/passkey-encryption/ for encryption
