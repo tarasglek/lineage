@@ -90,7 +90,7 @@ Deno.test("POST /register/begin rejects malformed request body", async () => {
 });
 
 Deno.test("POST /register/complete accepts a valid attestation response", async () => {
-  const { app, seedInvite, state } = await createTestApp();
+  const { app, seedInvite, getCredential, getInvite } = await createTestApp();
   const inviteToken = await seedInvite();
 
   const beginRes = await app.request("/register/begin", {
@@ -114,10 +114,10 @@ Deno.test("POST /register/complete accepts a valid attestation response", async 
 
   if (completeRes.status !== 200) throw new Error(`expected 200, got ${completeRes.status}`);
 
-  const storedCredential = state.credentials.get(attestation.id);
+  const storedCredential = getCredential(attestation.id);
   if (!storedCredential) throw new Error("credential was not stored");
 
-  const invite = state.invites.get(inviteToken);
+  const invite = getInvite(inviteToken);
   if (!invite?.usedAt) throw new Error("invite was not consumed");
 });
 
@@ -244,7 +244,7 @@ Deno.test("POST /register/complete rejects a replayed completion request", async
 });
 
 Deno.test("POST /register/complete rejects a reused invite", async () => {
-  const { app, seedInvite, state } = await createTestApp();
+  const { app, seedInvite, getInvite, putInvite } = await createTestApp();
   const inviteToken = await seedInvite();
 
   const beginRes = await app.request("/register/begin", {
@@ -257,9 +257,9 @@ Deno.test("POST /register/complete rejects a reused invite", async () => {
   const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
   const attestation = generated.attestationResponse;
 
-  const invite = state.invites.get(inviteToken);
+  const invite = getInvite(inviteToken);
   if (!invite) throw new Error("missing invite");
-  invite.usedAt = Date.now();
+  putInvite({ ...invite, usedAt: Date.now() });
 
   const res = await app.request("/register/complete", {
     method: "POST",

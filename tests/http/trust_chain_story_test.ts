@@ -24,7 +24,7 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
   type StoryInvite = { token: string; type: "user" | "device"; inviterUserId: string | null; targetUserId?: string };
 
   async function loadBootstrapRegistrationPage(): Promise<void> {
-    const invite = t.state.invites.get(t.bootstrapInviteToken);
+    const invite = t.getInvite(t.bootstrapInviteToken);
     if (!invite) throw new Error("missing bootstrap invite");
     if (invite.type !== "user") throw new Error(`expected user invite, got ${invite.type}`);
     if (invite.inviterUserId !== t.providerRootUserId) {
@@ -146,7 +146,7 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     username: string;
     credential: StoryCredential;
   }): Promise<string> {
-    const sessionsBefore = t.state.sessions.length;
+    const sessionsBefore = t.listSessions().length;
     const beginRes = await t.app.request("/login/begin", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -177,7 +177,7 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     if (body.username !== input.username) {
       throw new Error(`expected login username ${input.username}, got ${body.username}`);
     }
-    const sessionsAfter = t.state.sessions.length;
+    const sessionsAfter = t.listSessions().length;
     if (sessionsAfter !== sessionsBefore + 1) {
       throw new Error(`expected sessions to increment from ${sessionsBefore} to ${sessionsBefore + 1}, got ${sessionsAfter}`);
     }
@@ -210,23 +210,23 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
   }
 
   function assertTrustChain(): void {
-    const rootUser = t.state.users.get(t.providerRootUserId);
+    const rootUser = t.getUser(t.providerRootUserId);
     if (!rootUser) throw new Error("missing provider root user");
     if (rootUser.invitedBy !== null) throw new Error("provider root should not have inviter");
 
-    const aliceUser = t.state.users.get(firstUser.userId);
+    const aliceUser = t.getUser(firstUser.userId);
     if (!aliceUser) throw new Error("missing first user");
     if (aliceUser.invitedBy !== t.providerRootUserId) {
       throw new Error(`expected alice invitedBy ${t.providerRootUserId}, got ${aliceUser.invitedBy}`);
     }
 
-    const bobUser = t.state.users.get(secondUser.userId);
+    const bobUser = t.getUser(secondUser.userId);
     if (!bobUser) throw new Error("missing second user");
     if (bobUser.invitedBy !== firstUser.userId) {
       throw new Error(`expected bob invitedBy ${firstUser.userId}, got ${bobUser.invitedBy}`);
     }
 
-    const secondUserInviteState = t.state.invites.get(secondUserInvite.token);
+    const secondUserInviteState = t.getInvite(secondUserInvite.token);
     if (!secondUserInviteState) throw new Error("missing second user invite");
     if (secondUserInviteState.type !== "user") throw new Error("second user invite should be user type");
     if (secondUserInviteState.inviterUserId !== firstUser.userId) {
@@ -235,19 +235,19 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     if (secondUserInviteState.usedAt === null) throw new Error("second user invite should be consumed");
 
     for (const deviceInvite of [alicePhoneInvite, aliceLaptopInvite, bobPhoneInvite, bobTabletInvite, bobLaptopInvite]) {
-      const invite = t.state.invites.get(deviceInvite.token);
+      const invite = t.getInvite(deviceInvite.token);
       if (!invite) throw new Error(`missing device invite ${deviceInvite.token}`);
       if (invite.type !== "device") throw new Error(`expected device invite for ${deviceInvite.token}`);
       if (invite.usedAt === null) throw new Error(`device invite ${deviceInvite.token} should be consumed`);
     }
 
-    const aliceCredentials = Array.from(t.state.credentials.values()).filter((credential) => credential.userId === firstUser.userId);
-    const bobCredentials = Array.from(t.state.credentials.values()).filter((credential) => credential.userId === secondUser.userId);
+    const aliceCredentials = t.listCredentials().filter((credential) => credential.userId === firstUser.userId);
+    const bobCredentials = t.listCredentials().filter((credential) => credential.userId === secondUser.userId);
     if (aliceCredentials.length !== 3) throw new Error(`expected 3 alice credentials, got ${aliceCredentials.length}`);
     if (bobCredentials.length !== 4) throw new Error(`expected 4 bob credentials, got ${bobCredentials.length}`);
 
-    if (t.state.users.size !== 3) throw new Error(`expected 3 users including root, got ${t.state.users.size}`);
-    if (t.state.sessions.length !== 7) throw new Error(`expected 7 login sessions, got ${t.state.sessions.length}`);
+    if (t.listUsers().length !== 3) throw new Error(`expected 3 users including root, got ${t.listUsers().length}`);
+    if (t.listSessions().length !== 7) throw new Error(`expected 7 login sessions, got ${t.listSessions().length}`);
   }
 
   await loadBootstrapRegistrationPage();
@@ -282,7 +282,7 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     username: firstUser.username,
   });
   if (aliceLaptop.userId !== firstUser.userId) throw new Error("alice laptop should attach to first user");
-  const usersAfterAliceDevices = t.state.users.size;
+  const usersAfterAliceDevices = t.listUsers().length;
   if (usersAfterAliceDevices !== 2) throw new Error(`expected root + alice after alice devices, got ${usersAfterAliceDevices}`);
 
   const secondUserInvite = await createInviteThroughForm({
@@ -334,7 +334,7 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     username: secondUser.username,
   });
   if (bobLaptop.userId !== secondUser.userId) throw new Error("bob laptop should attach to second user");
-  const usersAfterBobDevices = t.state.users.size;
+  const usersAfterBobDevices = t.listUsers().length;
   if (usersAfterBobDevices !== 3) throw new Error(`expected root + two users after bob devices, got ${usersAfterBobDevices}`);
 
   const aliceLoginCookie = await loginWithCredential({ username: firstUser.username, credential: firstUser.credential });

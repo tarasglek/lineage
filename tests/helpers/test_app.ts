@@ -1,27 +1,23 @@
 import { runRegisterResponse } from "./passkey_helper_cli.ts";
 import { createPasskeyApp } from "../../src/passkey_app.ts";
-import { createInMemoryPasskeyStorage, type TestState } from "../../src/passkey_storage.ts";
-import { createTestDb } from "./test_db.ts";
+import { createSqlitePasskeyStorage, initializePasskeyStorageSqlite } from "../../src/passkey_storage_sqlite.ts";
 
 export async function createTestApp() {
-  const db = await createTestDb();
+  const dir = await Deno.makeTempDir();
+  const path = `${dir}/users.sqlite`;
+  await initializePasskeyStorageSqlite(path);
+  const storage = createSqlitePasskeyStorage(path);
+
   const providerRootUserId = crypto.randomUUID();
-  const state: TestState = {
-    providerRootUserId,
-    invites: new Map(),
-    users: new Map(),
-    credentials: new Map(),
-    sessions: [],
-  };
-  state.users.set(providerRootUserId, {
+  storage.putUser({
     id: providerRootUserId,
     username: "provider-root",
     invitedBy: null,
   });
 
-  const app = createPasskeyApp(createInMemoryPasskeyStorage(state));
+  const app = createPasskeyApp(storage);
   const bootstrapInviteToken = crypto.randomUUID();
-  state.invites.set(bootstrapInviteToken, {
+  storage.putInvite({
     token: bootstrapInviteToken,
     type: "user",
     inviterUserId: providerRootUserId,
@@ -34,8 +30,61 @@ export async function createTestApp() {
     providerRootUserId,
     bootstrapInviteToken,
     app,
-    db,
-    state,
+    db: {
+      path,
+      async close() {
+        storage.close();
+        await Deno.remove(path).catch(() => undefined);
+        await Deno.remove(dir).catch(() => undefined);
+      },
+    },
+    storage,
+    getUser(userId: string) {
+      return storage.getUser(userId);
+    },
+    putUser(user: { id: string; username: string; invitedBy?: string | null }) {
+      storage.putUser(user);
+    },
+    listUsers() {
+      return storage.listUsers();
+    },
+    getInvite(token: string) {
+      return storage.getInvite(token);
+    },
+    putInvite(invite: {
+      token: string;
+      type: "user" | "device";
+      inviterUserId: string | null;
+      targetUserId?: string;
+      label?: string;
+      expiresAt: number;
+      usedAt: number | null;
+    }) {
+      storage.putInvite(invite);
+    },
+    listInvites() {
+      return storage.listInvites();
+    },
+    getCredential(id: string) {
+      return storage.getCredential(id);
+    },
+    putCredential(credential: {
+      id: string;
+      publicKey: string;
+      publicKeyPem?: string;
+      algorithm: number;
+      signCount: number;
+      userId: string;
+      transports?: string[];
+    }) {
+      storage.putCredential(credential);
+    },
+    listCredentials() {
+      return storage.listCredentials();
+    },
+    listSessions() {
+      return storage.listSessions();
+    },
     async seedInvite(overrides?: {
       type?: "user" | "device";
       inviterUserId?: string | null;
@@ -45,7 +94,7 @@ export async function createTestApp() {
       usedAt?: number | null;
     }) {
       const token = crypto.randomUUID();
-      state.invites.set(token, {
+      storage.putInvite({
         token,
         type: overrides?.type ?? "user",
         inviterUserId: overrides?.inviterUserId ?? providerRootUserId,
@@ -58,7 +107,7 @@ export async function createTestApp() {
     },
     async seedUserWithPasskey(username: string) {
       const userId = crypto.randomUUID();
-      state.users.set(userId, { id: userId, username });
+      storage.putUser({ id: userId, username });
 
       const creationOptions = {
         challenge: "seed-challenge",
@@ -81,7 +130,7 @@ export async function createTestApp() {
         userId,
         transports: ["internal"],
       };
-      state.credentials.set(credential.id, credential);
+      storage.putCredential(credential);
 
       return {
         username,

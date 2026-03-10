@@ -30,7 +30,7 @@ Deno.test("POST /invites redirects unauthenticated access to /login", async () =
 });
 
 Deno.test("authenticated user can create an invite and inviter comes from session", async () => {
-  const { app, seedUserWithPasskey, state } = await createTestApp();
+  const { app, seedUserWithPasskey, getInvite } = await createTestApp();
   const alice = await seedUserWithPasskey("alice");
 
   const loginRes = await app.request("/test/login", {
@@ -55,7 +55,7 @@ Deno.test("authenticated user can create an invite and inviter comes from sessio
   const html = await res.text();
   const token = html.match(/data-token="([^"]+)"/)?.[1];
   if (!token) throw new Error("missing invite token");
-  const invite = state.invites.get(token);
+  const invite = getInvite(token);
   if (!invite) throw new Error("invite not stored");
   if (invite.inviterUserId !== alice.userId) {
     throw new Error(`expected inviter ${alice.userId}, got ${invite.inviterUserId}`);

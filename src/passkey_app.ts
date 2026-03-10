@@ -300,7 +300,7 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       userId: flow.userId,
       transports: attestation.authData.transports,
     });
-    invite.usedAt = Date.now();
+    storage.putInvite({ ...invite, usedAt: Date.now() });
 
     const authToken = await signAuthSessionToken({ userId: flow.userId, username: flow.username });
     c.header("set-cookie", authCookieValue(authToken));
@@ -405,7 +405,7 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       return c.json({ error: "invalid_signature" }, 400);
     }
 
-    credential.signCount = authData.signCount;
+    storage.putCredential({ ...credential, signCount: authData.signCount });
     storage.recordSession({ userId: flow.userId, createdAt: Date.now() });
 
     const authToken = await signAuthSessionToken({ userId: flow.userId, username: flow.username });

@@ -4,7 +4,7 @@ Deno.test("GET /account shows trust chain details for authenticated user", async
   const t = await createTestApp();
   const alice = await t.seedUserWithPasskey("alice");
   const bob = await t.seedUserWithPasskey("bob");
-  t.state.users.set(bob.userId, { ...t.state.users.get(bob.userId)!, invitedBy: alice.userId });
+  t.putUser({ ...t.getUser(bob.userId)!, invitedBy: alice.userId });
   const bobInvite = await t.seedInvite({ type: "device", inviterUserId: bob.userId, targetUserId: bob.userId, label: "bob-phone" });
 
   const loginRes = await t.app.request("/test/login", {

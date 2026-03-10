@@ -20,7 +20,7 @@ Deno.test("POST /login/begin returns assertion options for a known account", asy
 });
 
 Deno.test("POST /login/complete accepts a valid assertion response", async () => {
-  const { app, seedUserWithPasskey, state } = await createTestApp();
+  const { app, seedUserWithPasskey, getCredential, listSessions } = await createTestApp();
   const seeded = await seedUserWithPasskey("alice");
 
   const beginRes = await app.request("/login/begin", {
@@ -56,12 +56,12 @@ Deno.test("POST /login/complete accepts a valid assertion response", async () =>
   if (completeRes.status !== 200) throw new Error(`expected 200, got ${completeRes.status}`);
   if (!completeRes.headers.get("set-cookie")) throw new Error("missing auth cookie");
 
-  const storedCredential = state.credentials.get(seeded.credential.id);
+  const storedCredential = getCredential(seeded.credential.id);
   if (!storedCredential) throw new Error("credential missing after login");
   if (storedCredential.signCount <= previousSignCount) {
     throw new Error("sign count did not increase");
   }
-  if (state.sessions.length !== 1) throw new Error(`expected 1 auth session, got ${state.sessions.length}`);
+  if (listSessions().length !== 1) throw new Error(`expected 1 auth session, got ${listSessions().length}`);
 });
 
 Deno.test("POST /login/complete rejects a missing flow token", async () => {
@@ -297,11 +297,11 @@ Deno.test("POST /login/complete rejects a credential not owned by the user", asy
 });
 
 Deno.test("POST /login/complete rejects a counter rollback", async () => {
-  const { app, seedUserWithPasskey, state } = await createTestApp();
+  const { app, seedUserWithPasskey, getCredential, putCredential } = await createTestApp();
   const seeded = await seedUserWithPasskey("alice");
-  const stored = state.credentials.get(seeded.credential.id);
+  const stored = getCredential(seeded.credential.id);
   if (!stored) throw new Error("missing credential");
-  stored.signCount = 10;
+  putCredential({ ...stored, signCount: 10 });
 
   const beginRes = await app.request("/login/begin", {
     method: "POST",
