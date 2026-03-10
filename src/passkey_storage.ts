@@ -50,6 +50,7 @@ export interface PasskeyStorage {
 
   recordSession(session: SessionRecord): void;
   listSessions(): SessionRecord[];
+  transaction<T>(fn: () => T): T;
   close(): void;
 }
 
@@ -59,7 +60,9 @@ export function createInMemoryPasskeyStorage(state: TestState): PasskeyStorage {
       return state.users.get(userId);
     },
     findUserByUsername(username) {
-      return Array.from(state.users.values()).find((candidate) => candidate.username === username);
+      return Array.from(state.users.values()).find((candidate) =>
+        candidate.username === username
+      );
     },
     putUser(user) {
       state.users.set(user.id, user);
@@ -90,6 +93,9 @@ export function createInMemoryPasskeyStorage(state: TestState): PasskeyStorage {
     },
     listSessions() {
       return [...state.sessions];
+    },
+    transaction(fn) {
+      return fn();
     },
     close() {
       // no-op

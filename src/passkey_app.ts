@@ -356,16 +356,6 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     const invite = flow.inviteToken ? storage.getInvite(flow.inviteToken) : undefined;
     if (!invite || invite.usedAt) return c.json({ error: "invite_already_used" }, 409);
 
-    if (invite.type === "user") {
-      const existingByUsername = storage.findUserByUsername(flow.username);
-      if (existingByUsername && existingByUsername.id !== flow.userId) {
-        return c.json({ error: "username_taken" }, 409);
-      }
-      storage.putUser({ id: flow.userId, username: flow.username, invitedBy: invite.inviterUserId });
-    } else if (!storage.getUser(flow.userId)) {
-      return c.json({ error: "device_invite_user_not_found" }, 404);
-    }
-
     let credentialRecord;
     if (
       body?.response?.authenticatorData &&
@@ -427,8 +417,29 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       };
     }
 
-    storage.putCredential(credentialRecord);
-    storage.putInvite({ ...invite, usedAt: Date.now() });
+    try {
+      storage.transaction(() => {
+        if (invite.type === "user") {
+          const existingByUsername = storage.findUserByUsername(flow.username);
+          if (existingByUsername && existingByUsername.id !== flow.userId) {
+            throw new Error("username_taken");
+          }
+          storage.putUser({ id: flow.userId, username: flow.username, invitedBy: invite.inviterUserId });
+        } else if (!storage.getUser(flow.userId)) {
+          throw new Error("device_invite_user_not_found");
+        }
+
+        storage.putCredential(credentialRecord);
+        storage.putInvite({ ...invite, usedAt: Date.now() });
+      });
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error);
+      if (message === "username_taken") return c.json({ error: "username_taken" }, 409);
+      if (message === "device_invite_user_not_found") {
+        return c.json({ error: "device_invite_user_not_found" }, 404);
+      }
+      throw error;
+    }
 
     const authToken = await signAuthSessionToken({ userId: flow.userId, username: flow.username });
     c.header("set-cookie", authCookieValue(authToken, webauthn.isSecure));
