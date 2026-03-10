@@ -297,6 +297,40 @@ Deno.test("POST /register/complete rejects a replayed completion request", async
   }
 });
 
+Deno.test("POST /register/complete rejects a duplicate username", async () => {
+  const { app, seedInvite, seedUserWithPasskey } = await createTestApp();
+  await seedUserWithPasskey("alice");
+  const inviteToken = await seedInvite();
+
+  const beginRes = await app.request("/register/begin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ inviteToken, username: "alice" }),
+  });
+  const creationOptions = await beginRes.json();
+
+  const generated = await runRegisterResponse({
+    origin: "http://localhost",
+    creationOptions,
+  });
+  const attestation = generated.attestationResponse;
+
+  const res = await app.request("/register/complete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...attestation,
+      flowToken: creationOptions.flowToken,
+    }),
+  });
+
+  if (res.status !== 409) throw new Error(`expected 409, got ${res.status}`);
+  const body = await res.json();
+  if (body.error !== "username_taken") {
+    throw new Error(`expected username_taken, got ${body.error}`);
+  }
+});
+
 Deno.test("POST /register/complete rejects a reused invite", async () => {
   const { app, seedInvite, getInvite, putInvite } = await createTestApp();
   const inviteToken = await seedInvite();

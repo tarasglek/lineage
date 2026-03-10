@@ -357,6 +357,10 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     if (!invite || invite.usedAt) return c.json({ error: "invite_already_used" }, 409);
 
     if (invite.type === "user") {
+      const existingByUsername = storage.findUserByUsername(flow.username);
+      if (existingByUsername && existingByUsername.id !== flow.userId) {
+        return c.json({ error: "username_taken" }, 409);
+      }
       storage.putUser({ id: flow.userId, username: flow.username, invitedBy: invite.inviterUserId });
     } else if (!storage.getUser(flow.userId)) {
       return c.json({ error: "device_invite_user_not_found" }, 404);
