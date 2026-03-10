@@ -81,6 +81,68 @@ function decodeBase64Url(value: string) {
 export function createPasskeyApp(state: TestState) {
   const app = new Hono();
 
+  app.get("/register", (c) => {
+    const inviteToken = c.req.query("inviteToken") ?? "";
+    return c.html(`<!doctype html><html><body>
+      <form method="post" action="/register">
+        <input type="hidden" name="inviteToken" value="${inviteToken}">
+        <input name="username">
+        <button type="submit">Register</button>
+      </form>
+    </body></html>`);
+  });
+
+  app.post("/register", async (c) => {
+    const form = await c.req.formData();
+    const inviteToken = String(form.get("inviteToken") ?? "");
+    const username = String(form.get("username") ?? "");
+    return c.redirect(`/register/passkey?inviteToken=${encodeURIComponent(inviteToken)}&username=${encodeURIComponent(username)}`, 303);
+  });
+
+  app.get("/register/passkey", (c) => {
+    const inviteToken = c.req.query("inviteToken") ?? "";
+    const username = c.req.query("username") ?? "";
+    return c.html(`<!doctype html><html><body>
+      <div data-invite-token="${inviteToken}" data-username="${username}">passkey-registration</div>
+    </body></html>`);
+  });
+
+  app.get("/invites/new", (c) => {
+    const inviterUserId = c.req.query("inviterUserId") ?? "";
+    const type = c.req.query("type") ?? "user";
+    const targetUserId = c.req.query("targetUserId") ?? "";
+    return c.html(`<!doctype html><html><body>
+      <form method="post" action="/invites">
+        <input type="hidden" name="inviterUserId" value="${inviterUserId}">
+        <input type="hidden" name="type" value="${type}">
+        <input type="hidden" name="targetUserId" value="${targetUserId}">
+        <input name="label">
+        <button type="submit">Create invite</button>
+      </form>
+    </body></html>`);
+  });
+
+  app.post("/invites", async (c) => {
+    const form = await c.req.formData();
+    const token = crypto.randomUUID();
+    const type = String(form.get("type") ?? "user") as "user" | "device";
+    const inviterUserId = String(form.get("inviterUserId") ?? "") || null;
+    const targetUserId = String(form.get("targetUserId") ?? "") || undefined;
+    const label = String(form.get("label") ?? "");
+    state.invites.set(token, {
+      token,
+      type,
+      inviterUserId,
+      targetUserId,
+      label,
+      expiresAt: Date.now() + 60_000,
+      usedAt: null,
+    });
+    return c.html(`<!doctype html><html><body>
+      <div data-token="${token}" data-type="${type}" data-inviter-user-id="${inviterUserId ?? ""}" data-target-user-id="${targetUserId ?? ""}">${token}</div>
+    </body></html>`);
+  });
+
   app.post("/register/begin", async (c) => {
     const body = await c.req.json().catch(() => undefined);
     if (body === undefined) return c.json({ error: "invalid_json" }, 400);
