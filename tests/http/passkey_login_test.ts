@@ -284,8 +284,21 @@ Deno.test("POST /login/complete rejects a replayed assertion", async () => {
   });
   const requestOptions = await beginRes.json();
 
-  const helper = seeded.passkeyHelper;
-  const assertion = await helper.createAssertionResponse(requestOptions, seeded.credential);
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions,
+    credential: {
+      id: seeded.credential.id,
+      userId: seeded.credential.userId,
+      rpId: seeded.credential.rpId,
+      algorithm: seeded.credential.algorithm,
+      publicKey: seeded.credential.publicKey,
+      publicKeyPem: seeded.credential.publicKeyPem,
+      privateKeyPem: seeded.credential.privateKeyPem,
+      signCount: seeded.credential.signCount,
+    },
+  });
+  const assertion = generated.assertionResponse;
 
   const firstRes = await app.request("/login/complete", {
     method: "POST",
