@@ -31,8 +31,6 @@ The system can also act as a standard OAuth provider so that other private apps 
   - set of passkey identities that can be used to login
   - a set (>=1) of age private keys encrypted to the user's passkey identities per https://words.filippo.io/passkey-encryption/; we use age multi-recipient encryption, and every time we add a passkey, we re-encrypt the private keys
   - this is meant to be zero-trust / signal-like: the server stores encrypted key material and should have no access to users' plaintext private keys or application data
-  - we manage these age keys now to support a future wallet-like design where apps can use a cross-origin iframe / RPC interface hosted by this identity provider for limited cryptographic operations
-  - in that future design, apps would not get direct access to user key material; instead they would call into the identity provider origin, which would use the passkey-protected age keys on the user's behalf
 - uuid of 0 represents the system:
   - at first start, if no users exist in the system, an invite for a user is generated and logged
   - pub/private age key comes from env vars
@@ -52,6 +50,23 @@ The system can also act as a standard OAuth provider so that other private apps 
 ## OAuth
 - We will exposed minimal outh integration ala https://lastlogin.net/developers/
 - eg endpoints, .well-known, no pre-registration
+
+## Future
+- these managed age keys are intended to support future app-facing encryption features
+- OIDC would handle login only; app-facing encryption would require a separate integration
+- one possible design is a wallet-like cross-origin iframe or popup hosted on the identity provider origin
+- relying apps could communicate with that provider-owned context via `postMessage` / RPC
+- the goal would be to let apps request limited cryptographic operations without direct access to plaintext key material
+
+### Potential implementation paths
+- browser standards path
+  - follow evolving browser and WebAuthn support for cross-origin embedded auth/crypto flows
+- cross-origin wallet path
+  - use an embedded-wallet style design: iframe or popup on the identity-provider origin with a narrow RPC API
+- public-key directory path
+  - expose user public encryption keys and related metadata to relying apps, while private key operations remain user-side
+- hybrid path
+  - use OIDC for auth, public keys for simple encryption use cases, and iframe/RPC for more sensitive operations
 
 ## Tech stack
 - deno impl to start with
