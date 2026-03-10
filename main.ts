@@ -1,44 +1,44 @@
-import { Hono } from "@hono/hono";
-import type { Context } from "@hono/hono";
-import { logger } from "@hono/hono/logger";
-import { serveDir } from "@std/http/file-server";
-//import { emailRegexpChecker, getSecret, Locker } from "jsr:@tarasglek/locker"
-const config = JSON.parse(await Deno.readTextFile("./config.json"));
+import { createPasskeyApp } from "./src/passkey_app.ts";
+import { createSqlitePasskeyStorage, initializePasskeyStorageSqlite } from "./src/passkey_storage_sqlite.ts";
 
-let locker: typeof Locker | undefined;
+export async function createMainPasskeyApp(path = "./data/users.sqlite") {
+  await initializePasskeyStorageSqlite(path);
+  const storage = createSqlitePasskeyStorage(path);
 
-const app = new Hono();
-
-app.use("*", async (c, next) => {
-  const host = c.req.header("x-forwarded-host");
-  if (host) {
-    if (!locker) {
-      locker = await Locker.init({
-        domain: host,
-        secret: await getSecret(host + import.meta.url),
-        oidc_issuer: "https://lastlogin.net/",
-        checker: emailRegexpChecker(config.allowedEmails as string[]),
-      });
-    }
+  let providerRootUser = storage.findUserByUsername("provider-root");
+  if (!providerRootUser) {
+    providerRootUser = {
+      id: crypto.randomUUID(),
+      username: "provider-root",
+      invitedBy: null,
+    };
+    storage.putUser(providerRootUser);
   }
-  await next();
-}).use(logger())
-  .get("/logout", async (c) => {
-    await locker!.revokeSession(c as Context);
-    return c.html(
-      `You have been successfully logged out! <a href="/">home</a>`,
-    );
-  })
-  .use("*", (c, next) => locker!.oidcAuthMiddleware()(c, next))
-  .use("*", (c, next) => locker!.check()(c, next))
-  .get(
-    "/*",
-    (c) => {
-      // this actually includes content-length unlike hono's serveStatic
-      return serveDir(c.req.raw, {
-        fsRoot: "dist",
-      });
-    },
-  );
 
-export default app;
+  let bootstrapInvite = storage.listInvites().find((invite) =>
+    invite.type === "user" && invite.inviterUserId === providerRootUser!.id && invite.label === "bootstrap-user" && invite.usedAt === null
+  );
+  if (!bootstrapInvite) {
+    bootstrapInvite = {
+      token: crypto.randomUUID(),
+      type: "user" as const,
+      inviterUserId: providerRootUser.id,
+      expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+      usedAt: null,
+      label: "bootstrap-user",
+    };
+    storage.putInvite(bootstrapInvite);
+  }
+
+  const app = createPasskeyApp(storage);
+  return {
+    app,
+    storage,
+    providerRootUserId: providerRootUser.id,
+    bootstrapInviteToken: bootstrapInvite.token,
+  };
+}
+
+const main = await createMainPasskeyApp();
+
+export default main.app;
