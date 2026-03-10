@@ -1,7 +1,6 @@
 import { createMainPasskeyApp } from "../main.ts";
 
-const args = Deno.args.filter((arg) => arg !== "--");
-const baseUrl = args[0] ?? "http://localhost:8000";
+const baseUrl = Deno.args[0] ?? "http://localhost:8000";
 const app = await createMainPasskeyApp();
 
 try {
