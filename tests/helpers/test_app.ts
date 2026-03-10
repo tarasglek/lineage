@@ -4,7 +4,9 @@ import { createTestDb } from "./test_db.ts";
 
 export async function createTestApp() {
   const db = await createTestDb();
+  const providerRootUserId = crypto.randomUUID();
   const state: TestState = {
+    providerRootUserId,
     invites: new Map(),
     registrationSessions: new Map(),
     authenticationSessions: new Map(),
@@ -12,24 +14,44 @@ export async function createTestApp() {
     credentials: new Map(),
     sessions: [],
   };
+  state.users.set(providerRootUserId, {
+    id: providerRootUserId,
+    username: "provider-root",
+    invitedBy: null,
+  });
 
   const app = createPasskeyApp(state);
   const bootstrapInviteToken = crypto.randomUUID();
   state.invites.set(bootstrapInviteToken, {
     token: bootstrapInviteToken,
+    type: "user",
+    inviterUserId: providerRootUserId,
     expiresAt: Date.now() + 60_000,
     usedAt: null,
+    label: "bootstrap-user",
   });
 
   return {
+    providerRootUserId,
     bootstrapInviteToken,
     app,
     db,
     state,
-    async seedInvite(overrides?: { expiresAt?: number; usedAt?: number | null }) {
+    async seedInvite(overrides?: {
+      type?: "user" | "device";
+      inviterUserId?: string | null;
+      targetUserId?: string;
+      label?: string;
+      expiresAt?: number;
+      usedAt?: number | null;
+    }) {
       const token = crypto.randomUUID();
       state.invites.set(token, {
         token,
+        type: overrides?.type ?? "user",
+        inviterUserId: overrides?.inviterUserId ?? providerRootUserId,
+        targetUserId: overrides?.targetUserId,
+        label: overrides?.label,
         expiresAt: overrides?.expiresAt ?? Date.now() + 60_000,
         usedAt: overrides?.usedAt ?? null,
       });

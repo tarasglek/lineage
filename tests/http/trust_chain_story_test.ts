@@ -18,7 +18,12 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
   type StoryInvite = { token: string; type: "user" | "device"; inviterUserId: string | null; targetUserId?: string };
 
   async function loadBootstrapRegistrationPage(): Promise<void> {
-    throw new Error("not implemented");
+    const invite = t.state.invites.get(t.bootstrapInviteToken);
+    if (!invite) throw new Error("missing bootstrap invite");
+    if (invite.type !== "user") throw new Error(`expected user invite, got ${invite.type}`);
+    if (invite.inviterUserId !== t.providerRootUserId) {
+      throw new Error(`expected bootstrap inviter ${t.providerRootUserId}, got ${invite.inviterUserId}`);
+    }
   }
 
   async function submitRegistrationForm(_input: {

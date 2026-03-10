@@ -20,6 +20,10 @@ function verifyAssertionSignature(input: {
 
 type Invite = {
   token: string;
+  type: "user" | "device";
+  inviterUserId: string | null;
+  targetUserId?: string;
+  label?: string;
   expiresAt: number;
   usedAt: number | null;
 };
@@ -41,6 +45,7 @@ type AuthenticationSession = {
 type User = {
   id: string;
   username: string;
+  invitedBy?: string | null;
 };
 
 type Credential = {
@@ -54,6 +59,7 @@ type Credential = {
 };
 
 export type TestState = {
+  providerRootUserId?: string;
   invites: Map<string, Invite>;
   registrationSessions: Map<string, RegistrationSession>;
   authenticationSessions: Map<string, AuthenticationSession>;
