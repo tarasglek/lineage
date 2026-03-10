@@ -72,6 +72,10 @@ Deno.test("authenticated user can create an invite and inviter comes from sessio
       `expected inviter ${alice.userId}, got ${invite.inviterUserId}`,
     );
   }
+  const ttl = invite.expiresAt - Date.now();
+  if (ttl < 23 * 60 * 60 * 1000 || ttl > 24 * 60 * 60 * 1000 + 5_000) {
+    throw new Error(`unexpected invite ttl: ${ttl}`);
+  }
   if (!html.includes('/register?inviteToken=')) {
     throw new Error("missing invite registration URL");
   }

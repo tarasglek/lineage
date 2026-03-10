@@ -253,7 +253,7 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       inviterUserId: currentUser.id,
       targetUserId: type === "device" ? currentUser.id : undefined,
       label,
-      expiresAt: Date.now() + 60_000,
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
       usedAt: null,
     });
 
