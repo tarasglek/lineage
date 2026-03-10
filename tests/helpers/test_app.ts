@@ -14,8 +14,15 @@ export async function createTestApp() {
   };
 
   const app = createPasskeyApp(state);
+  const bootstrapInviteToken = crypto.randomUUID();
+  state.invites.set(bootstrapInviteToken, {
+    token: bootstrapInviteToken,
+    expiresAt: Date.now() + 60_000,
+    usedAt: null,
+  });
 
   return {
+    bootstrapInviteToken,
     app,
     db,
     state,
