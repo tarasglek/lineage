@@ -17,24 +17,18 @@ The system can also act as a standard OAuth provider so that other private apps 
 - uuid of 0 represents the system
     * at first start if no users in system or invites an invite for a user is generated and logged
     * pub/private age key comes from env vars
-- user can invite via urls(also available as QR codes)
-    * invite urls cause a passkey registration
-    * an invite link can lead registration can be for another passkey for this user..eg to have a pass key for phone and another for desktop
-    * an invite link can be used to setup a new user...
+- users can create invite urls (also available as QR codes)
+    * there are two kinds of invite urls:
+      - user invite: creates a new user account in the network
+      - device invite: adds another passkey to an existing user account
+    * a device invite can be used to add, for example, a phone passkey and a desktop passkey to the same user
+    * only user invites create a new uuid and extend the inviter/invitee trust graph
+    * device invites only add a new authentication method to an existing user
 - invites
    * invites have an expiry time
    * they can only be used once
 - network exit
    * since this is a chain of trust, exit means we wipe all keys and mark user as purged, but we keep their uuid
-
-
-## registration
-- By default homepage requires pre-registered passkey to login
-- if we one goes to /register then it lets one register a passkey. this url is not advertied....one registers device name and associated pubkey
-- registrations go into data/registrations.yaml which is a list og name+pubkey
-- there is also a data/users.yaml which is a list of users that are validated
-- if you login and you are not in users.yaml...then you are shown  'in registration queue'
-- once someone moves you into users.yanl you see full app
 
 ## OAuth
 - We will exposed minimal outh integration ala https://lastlogin.net/developers/
