@@ -2,21 +2,25 @@
 
 A standalone, self-hosted login and identity provider for private communities.
 
-The system uses passkeys instead of passwords because they provide phishing-resistant authentication without password storage or email-based recovery, support biometric or PIN-based local verification and hardware authenticators such as YubiKeys, and can also protect access to user key material across multiple devices. New accounts are created through invites, so the system preserves a chain of trust between members instead of relying on major external identity providers or email. The system's primary use is like a standard OAuth/OIDC provider for other private apps.
+New accounts are created through invites, preserving a chain of trust between members instead of relying on major external identity providers or email.
+
+Its primary use is as a standard OAuth/OIDC provider for other private apps.
+
+Authentication uses passkeys instead of passwords because they provide phishing-resistant authentication without password storage or email-based recovery, support biometric or PIN-based local verification and hardware authenticators such as YubiKeys, and can also protect access to user key material across multiple devices. 
 
 ## Goals
-- The system should be a self-hosted identity provider for private communities.
-- The system should use passkeys instead of passwords.
-- The system should preserve invitation ancestry as a durable trust signal.
-- The system should support standard OAuth/OIDC for private apps.
-- The system should handle user key material in a zero-trust, signal-like way so that the server stores encrypted material without access to plaintext private keys or protected user data.
+- Self-hosted identity provider for private communities.
+- Preserves invitation ancestry as a durable trust signal.
+- Supports standard OAuth/OIDC for private apps.
+- Uses passkeys instead of passwords.
+- Handles user key material in a zero-trust, signal-like way so the server stores encrypted material without access to plaintext private keys or protected user data.
 
 ## Non-goals
-- The system is not intended to support open self-service registration.
-- The system is not intended to support password-based or email-based authentication.
-- The system is not intended to depend on major external identity providers.
-- The system is not intended to give the server access to plaintext user keys or protected app data.
-- The system is not intended to become a general-purpose application platform rather than an identity layer.
+- No open self-service registration.
+- No password-based or email-based authentication.
+- No dependency on major external identity providers.
+- No server access to plaintext user keys or protected app data.
+- Not a general-purpose application platform; remains an identity layer.
 
 ## Core model
 Invitation relationships are preserved as a long-lived trust graph. This makes it possible to trace how access entered the network and to prune abusive branches when necessary. Self-invites are allowed, which lets users intentionally create additional descendants under their own identity.
@@ -31,9 +35,9 @@ Each user has:
 
 This key handling is meant to be zero-trust / signal-like. The server stores encrypted key material and should not have access to users' plaintext private keys or application data.
 
-The uuid `0` represents the system itself:
+The uuid `0` represents the identity provider itself:
 - on first start, if no users exist, an initial user invite is generated and logged
-- the system age keypair comes from env vars
+- the provider age keypair comes from env vars
 
 Users can create invite URLs, which may also be represented as QR codes:
 - user invites create a new user account in the network
@@ -46,7 +50,7 @@ Invites have an expiry time and may only be used once.
 When a user exits the network, their keys are wiped and they are marked as purged, but their uuid is retained.
 
 ## OAuth
-The system should expose a minimal OAuth/OIDC integration similar to https://lastlogin.net/developers/. This includes the expected endpoints and discovery metadata, without requiring pre-registration.
+Exposes a minimal OAuth/OIDC integration similar to https://lastlogin.net/developers/. This includes the expected endpoints and discovery metadata, without requiring pre-registration.
 
 Relying apps may use invite ancestry as an input to authorization decisions. For example, an app may grant access to all identities in the subtree rooted at a given uuid.
 
