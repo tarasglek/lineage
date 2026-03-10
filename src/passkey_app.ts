@@ -35,20 +35,6 @@ type Invite = {
   usedAt: number | null;
 };
 
-type RegistrationSession = {
-  challenge: string;
-  username: string;
-  inviteToken: string;
-  userId: string;
-};
-
-type AuthenticationSession = {
-  challenge: string;
-  username: string;
-  userId: string;
-  allowedCredentialIds: string[];
-};
-
 type User = {
   id: string;
   username: string;
@@ -68,8 +54,6 @@ type Credential = {
 export type TestState = {
   providerRootUserId?: string;
   invites: Map<string, Invite>;
-  registrationSessions: Map<string, RegistrationSession>;
-  authenticationSessions: Map<string, AuthenticationSession>;
   users: Map<string, User>;
   credentials: Map<string, Credential>;
   sessions: Array<{ userId: string; createdAt: number }>;

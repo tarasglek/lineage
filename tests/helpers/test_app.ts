@@ -8,8 +8,6 @@ export async function createTestApp() {
   const state: TestState = {
     providerRootUserId,
     invites: new Map(),
-    registrationSessions: new Map(),
-    authenticationSessions: new Map(),
     users: new Map(),
     credentials: new Map(),
     sessions: [],
