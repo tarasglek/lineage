@@ -27,11 +27,13 @@ Deno.test("POST /login redirects to /login/passkey with username", async () => {
 
   if (res.status !== 303) throw new Error(`expected 303, got ${res.status}`);
   if (res.headers.get("location") !== "/login/passkey?username=alice") {
-    throw new Error(`unexpected redirect location: ${res.headers.get("location")}`);
+    throw new Error(
+      `unexpected redirect location: ${res.headers.get("location")}`,
+    );
   }
 });
 
-Deno.test("GET /login/passkey renders passkey login page", async () => {
+Deno.test("GET /login/passkey renders usable passkey login page", async () => {
   const { app } = await createTestApp();
 
   const res = await app.request("/login/passkey?username=alice");
@@ -40,6 +42,12 @@ Deno.test("GET /login/passkey renders passkey login page", async () => {
   const html = await res.text();
   if (!html.includes('data-username="alice"')) {
     throw new Error("missing passkey login username");
+  }
+  if (!html.includes("Sign in with passkey")) {
+    throw new Error("missing passkey action button");
+  }
+  if (!html.includes("id=\"status\"")) {
+    throw new Error("missing status box");
   }
 });
 
@@ -63,7 +71,9 @@ Deno.test("POST /logout clears auth cookie", async () => {
 
   if (res.status !== 303) throw new Error(`expected 303, got ${res.status}`);
   const setCookie = res.headers.get("set-cookie") ?? "";
-  if (!setCookie.includes("auth=;")) throw new Error("expected cleared auth cookie");
+  if (!setCookie.includes("auth=;")) {
+    throw new Error("expected cleared auth cookie");
+  }
 });
 
 Deno.test("protected SSR pages redirect to /login", async () => {
@@ -71,9 +81,15 @@ Deno.test("protected SSR pages redirect to /login", async () => {
 
   for (const path of ["/account", "/invites/new"] as const) {
     const res = await app.request(path, { redirect: "manual" });
-    if (res.status !== 302) throw new Error(`expected 302 for ${path}, got ${res.status}`);
+    if (res.status !== 302) {
+      throw new Error(`expected 302 for ${path}, got ${res.status}`);
+    }
     if (res.headers.get("location") !== "/login") {
-      throw new Error(`expected redirect to /login for ${path}, got ${res.headers.get("location")}`);
+      throw new Error(
+        `expected redirect to /login for ${path}, got ${
+          res.headers.get("location")
+        }`,
+      );
     }
   }
 });

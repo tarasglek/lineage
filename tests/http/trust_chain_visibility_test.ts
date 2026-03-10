@@ -5,7 +5,12 @@ Deno.test("GET /account shows trust chain details for authenticated user", async
   const alice = await t.seedUserWithPasskey("alice");
   const bob = await t.seedUserWithPasskey("bob");
   t.putUser({ ...t.getUser(bob.userId)!, invitedBy: alice.userId });
-  const bobInvite = await t.seedInvite({ type: "device", inviterUserId: bob.userId, targetUserId: bob.userId, label: "bob-phone" });
+  const bobInvite = await t.seedInvite({
+    type: "device",
+    inviterUserId: bob.userId,
+    targetUserId: bob.userId,
+    label: "bob-phone",
+  });
 
   const loginRes = await t.app.request("/test/login", {
     method: "POST",
@@ -21,8 +26,25 @@ Deno.test("GET /account shows trust chain details for authenticated user", async
   if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
 
   const html = await res.text();
-  if (!html.includes('data-username="bob"')) throw new Error("missing username");
-  if (!html.includes(`data-invited-by="${alice.userId}"`)) throw new Error("missing invited-by");
-  if (!html.includes(`data-invite-token="${bobInvite}"`)) throw new Error("missing created invite");
-  if (!html.includes("data-credential-id=")) throw new Error("missing credentials");
+  if (!html.includes('data-username="bob"')) {
+    throw new Error("missing username");
+  }
+  if (!html.includes(`data-invited-by="${alice.userId}"`)) {
+    throw new Error("missing invited-by");
+  }
+  if (!html.includes(`data-invite-token="${bobInvite}"`)) {
+    throw new Error("missing created invite");
+  }
+  if (!html.includes("data-credential-id=")) {
+    throw new Error("missing credentials");
+  }
+  if (!html.includes('href="/invites/new?type=user"')) {
+    throw new Error("missing user invite link");
+  }
+  if (!html.includes('href="/invites/new?type=device')) {
+    throw new Error("missing device invite link");
+  }
+  if (!html.includes('action="/logout"')) {
+    throw new Error("missing logout form");
+  }
 });

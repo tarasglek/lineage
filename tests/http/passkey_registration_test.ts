@@ -1,6 +1,27 @@
 import { runRegisterResponse } from "../helpers/passkey_helper_cli.ts";
 import { createTestApp } from "../helpers/test_app.ts";
 
+Deno.test("GET /register/passkey renders usable passkey registration page", async () => {
+  const { app } = await createTestApp();
+
+  const res = await app.request("/register/passkey?inviteToken=test-invite&username=alice");
+
+  if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
+  const html = await res.text();
+  if (!html.includes('data-invite-token="test-invite"')) {
+    throw new Error("missing invite token");
+  }
+  if (!html.includes('data-username="alice"')) {
+    throw new Error("missing username");
+  }
+  if (!html.includes("Create passkey")) {
+    throw new Error("missing passkey action button");
+  }
+  if (!html.includes("id=\"status\"")) {
+    throw new Error("missing status box");
+  }
+});
+
 Deno.test("POST /register/begin returns WebAuthn creation options for a valid invite", async () => {
   const { app, seedInvite } = await createTestApp();
   const inviteToken = await seedInvite();
@@ -109,10 +130,15 @@ Deno.test("POST /register/complete accepts a valid attestation response", async 
   const completeRes = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
+    body: JSON.stringify({
+      ...attestation,
+      flowToken: creationOptions.flowToken,
+    }),
   });
 
-  if (completeRes.status !== 200) throw new Error(`expected 200, got ${completeRes.status}`);
+  if (completeRes.status !== 200) {
+    throw new Error(`expected 200, got ${completeRes.status}`);
+  }
 
   const storedCredential = getCredential(attestation.id);
   if (!storedCredential) throw new Error("credential was not stored");
@@ -188,12 +214,21 @@ Deno.test("POST /register/complete rejects an expired flow token", async () => {
   const creationOptions = await beginRes.json();
   const parts = String(creationOptions.flowToken).split(".");
   if (parts.length !== 3) throw new Error("expected jwt");
-  const payloadJson = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/") + "===".slice((parts[1].length + 3) % 4)));
+  const payloadJson = JSON.parse(
+    atob(
+      parts[1].replace(/-/g, "+").replace(/_/g, "/") +
+        "===".slice((parts[1].length + 3) % 4),
+    ),
+  );
   payloadJson.exp = Math.floor(Date.now() / 1000) - 10;
-  const expiredPayload = btoa(JSON.stringify(payloadJson)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const expiredPayload = btoa(JSON.stringify(payloadJson)).replace(/\+/g, "-")
+    .replace(/\//g, "_").replace(/=+$/g, "");
   const expiredFlowToken = `${parts[0]}.${expiredPayload}.${parts[2]}`;
 
-  const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
+  const generated = await runRegisterResponse({
+    origin: "http://localhost",
+    creationOptions,
+  });
   const attestation = generated.attestationResponse;
 
   const res = await app.request("/register/complete", {
@@ -220,23 +255,36 @@ Deno.test("POST /register/complete rejects a replayed completion request", async
   });
   const creationOptions = await beginRes.json();
 
-  const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
+  const generated = await runRegisterResponse({
+    origin: "http://localhost",
+    creationOptions,
+  });
   const attestation = generated.attestationResponse;
 
   const firstRes = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
+    body: JSON.stringify({
+      ...attestation,
+      flowToken: creationOptions.flowToken,
+    }),
   });
-  if (firstRes.status !== 200) throw new Error(`expected initial 200, got ${firstRes.status}`);
+  if (firstRes.status !== 200) {
+    throw new Error(`expected initial 200, got ${firstRes.status}`);
+  }
 
   const secondRes = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
+    body: JSON.stringify({
+      ...attestation,
+      flowToken: creationOptions.flowToken,
+    }),
   });
 
-  if (secondRes.status !== 409) throw new Error(`expected 409, got ${secondRes.status}`);
+  if (secondRes.status !== 409) {
+    throw new Error(`expected 409, got ${secondRes.status}`);
+  }
   const body = await secondRes.json();
   if (body.error !== "invite_already_used") {
     throw new Error(`expected invite_already_used, got ${body.error}`);
@@ -254,7 +302,10 @@ Deno.test("POST /register/complete rejects a reused invite", async () => {
   });
   const creationOptions = await beginRes.json();
 
-  const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
+  const generated = await runRegisterResponse({
+    origin: "http://localhost",
+    creationOptions,
+  });
   const attestation = generated.attestationResponse;
 
   const invite = getInvite(inviteToken);
@@ -264,7 +315,10 @@ Deno.test("POST /register/complete rejects a reused invite", async () => {
   const res = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
+    body: JSON.stringify({
+      ...attestation,
+      flowToken: creationOptions.flowToken,
+    }),
   });
 
   if (res.status !== 409) throw new Error(`expected 409, got ${res.status}`);
@@ -285,16 +339,30 @@ Deno.test("POST /register/complete rejects an origin mismatch", async () => {
   });
   const creationOptions = await beginRes.json();
 
-  const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
+  const generated = await runRegisterResponse({
+    origin: "http://localhost",
+    creationOptions,
+  });
   const attestation = generated.attestationResponse;
-  const clientData = JSON.parse(atob(attestation.response.clientDataJSON.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((attestation.response.clientDataJSON.length + 3) % 4)));
+  const clientData = JSON.parse(
+    atob(
+      attestation.response.clientDataJSON.replace(/-/g, "+").replace(
+        /_/g,
+        "/",
+      ) + "===".slice((attestation.response.clientDataJSON.length + 3) % 4),
+    ),
+  );
   clientData.origin = "https://evil.example";
-  attestation.response.clientDataJSON = btoa(JSON.stringify(clientData)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  attestation.response.clientDataJSON = btoa(JSON.stringify(clientData))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 
   const res = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
+    body: JSON.stringify({
+      ...attestation,
+      flowToken: creationOptions.flowToken,
+    }),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
@@ -315,16 +383,31 @@ Deno.test("POST /register/complete rejects an RP ID mismatch", async () => {
   });
   const creationOptions = await beginRes.json();
 
-  const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
+  const generated = await runRegisterResponse({
+    origin: "http://localhost",
+    creationOptions,
+  });
   const attestation = generated.attestationResponse;
-  const attestationObjectJson = JSON.parse(atob(attestation.response.attestationObject.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((attestation.response.attestationObject.length + 3) % 4)));
+  const attestationObjectJson = JSON.parse(
+    atob(
+      attestation.response.attestationObject.replace(/-/g, "+").replace(
+        /_/g,
+        "/",
+      ) + "===".slice((attestation.response.attestationObject.length + 3) % 4),
+    ),
+  );
   attestationObjectJson.authData.rpId = "evil.example";
-  attestation.response.attestationObject = btoa(JSON.stringify(attestationObjectJson)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  attestation.response.attestationObject = btoa(
+    JSON.stringify(attestationObjectJson),
+  ).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 
   const res = await app.request("/register/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ...attestation, flowToken: creationOptions.flowToken }),
+    body: JSON.stringify({
+      ...attestation,
+      flowToken: creationOptions.flowToken,
+    }),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
