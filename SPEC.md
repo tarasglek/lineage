@@ -57,6 +57,8 @@ These managed age keys are intended to support future app-facing encryption feat
 
 One possible design is a wallet-like cross-origin iframe or popup hosted on the identity-provider origin. Relying apps could communicate with that provider-owned context via `postMessage` or another RPC-style interface. The goal would be to let apps request limited cryptographic operations without getting direct access to plaintext key material.
 
+The same wallet-like integration model could also expose confirmation workflows. A relying app could request confirmation of a sensitive action and receive back an assertion that the action was approved by a human authenticated as a specific identity. The identity provider could enforce additional requirements for that assertion, such as user-verifying passkeys, hardware authenticators, or subtree-specific external identity checks.
+
 The trust graph may eventually support subtree-level policy flags.
 - One possible flag would require hardware authenticators for future logins or invites.
 - Another possible flag would require authentication through a specific external OIDC provider as an additional identity-verification step.
