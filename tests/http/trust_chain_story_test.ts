@@ -227,10 +227,14 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     inviteToken: alicePhoneInvite.token,
     username: firstUser.username,
   });
+  if (alicePhone.userId !== firstUser.userId) throw new Error("alice phone should attach to first user");
   const aliceLaptop = await submitRegistrationForm({
     inviteToken: aliceLaptopInvite.token,
     username: firstUser.username,
   });
+  if (aliceLaptop.userId !== firstUser.userId) throw new Error("alice laptop should attach to first user");
+  const usersAfterAliceDevices = t.state.users.size;
+  if (usersAfterAliceDevices !== 2) throw new Error(`expected root + alice after alice devices, got ${usersAfterAliceDevices}`);
 
   const secondUserInvite = await createInviteThroughForm({
     inviterUserId: firstUser.userId,
@@ -266,14 +270,19 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     inviteToken: bobPhoneInvite.token,
     username: secondUser.username,
   });
+  if (bobPhone.userId !== secondUser.userId) throw new Error("bob phone should attach to second user");
   const bobTablet = await submitRegistrationForm({
     inviteToken: bobTabletInvite.token,
     username: secondUser.username,
   });
+  if (bobTablet.userId !== secondUser.userId) throw new Error("bob tablet should attach to second user");
   const bobLaptop = await submitRegistrationForm({
     inviteToken: bobLaptopInvite.token,
     username: secondUser.username,
   });
+  if (bobLaptop.userId !== secondUser.userId) throw new Error("bob laptop should attach to second user");
+  const usersAfterBobDevices = t.state.users.size;
+  if (usersAfterBobDevices !== 3) throw new Error(`expected root + two users after bob devices, got ${usersAfterBobDevices}`);
 
   await loginWithCredential({ username: firstUser.username, credential: firstUser.credential });
   await loginWithCredential({ username: firstUser.username, credential: alicePhone.credential });
