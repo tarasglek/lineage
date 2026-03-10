@@ -1,77 +1,65 @@
 # passkey invite-network
 
-A standalone login and identity provider for private communities.
+A standalone, self-hosted login and identity provider for private communities.
 
-Users authenticate with passkeys, not passwords. New accounts are created through invites, forming a chain of trust between members rather than relying on external identity providers like Google.
-
-The system can also act as a standard OAuth provider so that other private apps can delegate authentication to it.
+Users authenticate with passkeys instead of passwords. New accounts are created through invites, so the system preserves a chain of trust between members instead of relying on major external identity providers. The system can also act as a standard OAuth/OIDC provider for other private apps.
 
 ## Goals
-- be a self-hosted login and identity provider for private communities
-- use passkeys instead of passwords
-- grow through user invites, forming a chain of trust between members in a way similar to lobste.rs
-- protect private apps through standard OAuth/OIDC
-- keep key handling zero-trust / signal-like, so the server stores encrypted key material but does not have access to plaintext private keys or user data
-- support future app-level encryption tied to the same user identities
+- The system should be a self-hosted identity provider for private communities.
+- The system should use passkeys instead of passwords.
+- The system should preserve invitation ancestry as a durable trust signal.
+- The system should support standard OAuth/OIDC for private apps.
+- The system should handle user key material in a zero-trust, signal-like way so that the server stores encrypted material without access to plaintext private keys or protected user data.
 
 ## Non-goals
-- open self-service registration
-- password-based or email-based authentication
-- reliance on major external identity providers
-- server visibility into plaintext private keys or protected app data
-- becoming a general-purpose application platform rather than an identity layer
+- The system is not intended to support open self-service registration.
+- The system is not intended to support password-based or email-based authentication.
+- The system is not intended to depend on major external identity providers.
+- The system is not intended to give the server access to plaintext user keys or protected app data.
+- The system is not intended to become a general-purpose application platform rather than an identity layer.
 
 ## Core model
-- a self-hosted identity system for private communities that uses a lobste.rs-like invite and trust model instead of public signup or major external identity providers
-- invite relationships are preserved as a long-lived trust graph
-- this makes it possible to trace how access entered the network and to prune abusive branches when necessary
-- self-invites are allowed, so users can intentionally create additional descendants under their own identity
-- each user has:
-  - a unique username
-  - optional email which we dont check via confirmation and dont expose anywhere yet
-  - uuid
-  - uuid invited-by of user who invited them
-  - set of passkey identities that can be used to login
-  - a set (>=1) of age private keys encrypted to the user's passkey identities per https://words.filippo.io/passkey-encryption/; we use age multi-recipient encryption, and every time we add a passkey, we re-encrypt the private keys
-  - this is meant to be zero-trust / signal-like: the server stores encrypted key material and should have no access to users' plaintext private keys or application data
-- uuid of 0 represents the system:
-  - at first start, if no users exist in the system, an invite for a user is generated and logged
-  - pub/private age key comes from env vars
-- users can create invite urls (also available as QR codes):
-  - there are two kinds of invite urls:
-    - user invite: creates a new user account in the network
-    - device invite: adds another passkey to an existing user account
-  - a device invite can be used to add, for example, a phone passkey and a desktop passkey to the same user
-  - only user invites create a new uuid and extend the inviter/invitee trust graph
-  - device invites only add a new authentication method to an existing user
-- invites:
-  - invites have an expiry time
-  - they can only be used once
-- network exit:
-  - since this is a chain of trust, exit means we wipe all keys and mark user as purged, but we keep their uuid
+Invitation relationships are preserved as a long-lived trust graph. This makes it possible to trace how access entered the network and to prune abusive branches when necessary. Self-invites are allowed, which lets users intentionally create additional descendants under their own identity.
+
+Each user has:
+- a unique username
+- an optional email address, which is not currently verified or exposed
+- a uuid
+- the uuid of the user who invited them
+- a set of passkey identities that can be used to log in
+- a set (>=1) of age private keys encrypted to the user's passkey identities per https://words.filippo.io/passkey-encryption/; we use age multi-recipient encryption, and every time we add a passkey, we re-encrypt the private keys
+
+This key handling is meant to be zero-trust / signal-like. The server stores encrypted key material and should not have access to users' plaintext private keys or application data.
+
+The uuid `0` represents the system itself:
+- on first start, if no users exist, an initial user invite is generated and logged
+- the system age keypair comes from env vars
+
+Users can create invite URLs, which may also be represented as QR codes:
+- user invites create a new user account in the network
+- device invites add another passkey to an existing user account
+
+Only user invites create a new uuid and extend the inviter/invitee trust graph. Device invites only add a new authentication method to an existing user.
+
+Invites have an expiry time and may only be used once.
+
+When a user exits the network, their keys are wiped and they are marked as purged, but their uuid is retained.
 
 ## OAuth
-- We will exposed minimal outh integration ala https://lastlogin.net/developers/
-- eg endpoints, .well-known, no pre-registration
-- relying apps may use invite ancestry as an authorization primitive
-- for example, an app may grant access to all identities in the subtree rooted at a given uuid
+The system should expose a minimal OAuth/OIDC integration similar to https://lastlogin.net/developers/. This includes the expected endpoints and discovery metadata, without requiring pre-registration.
+
+Relying apps may use invite ancestry as an input to authorization decisions. For example, an app may grant access to all identities in the subtree rooted at a given uuid.
 
 ## Future
-- these managed age keys are intended to support future app-facing encryption features
-- OIDC would handle login only; app-facing encryption would require a separate integration
-- one possible design is a wallet-like cross-origin iframe or popup hosted on the identity provider origin
-- relying apps could communicate with that provider-owned context via `postMessage` / RPC
-- the goal would be to let apps request limited cryptographic operations without direct access to plaintext key material
+These managed age keys are intended to support future app-facing encryption features. OIDC would handle login only; app-facing encryption would require a separate integration beyond OIDC itself.
+
+One possible design is a wallet-like cross-origin iframe or popup hosted on the identity-provider origin. Relying apps could communicate with that provider-owned context via `postMessage` or another RPC-style interface. The goal would be to let apps request limited cryptographic operations without getting direct access to plaintext key material.
 
 ### Potential implementation paths
-- browser standards path
-  - follow evolving browser and WebAuthn support for cross-origin embedded auth/crypto flows
-- cross-origin wallet path
-  - use an embedded-wallet style design: iframe or popup on the identity-provider origin with a narrow RPC API
-- public-key directory path
-  - expose user public encryption keys and related metadata to relying apps, while private key operations remain user-side
-- hybrid path
-  - use OIDC for auth, public keys for simple encryption use cases, and iframe/RPC for more sensitive operations
+- A browser-standards path could follow evolving browser and WebAuthn support for cross-origin embedded auth or crypto flows.
+- A cross-origin wallet path could use an embedded-wallet style design with an iframe or popup on the identity-provider origin and a narrow RPC API.
+- A public-key directory path could expose user public encryption keys and related metadata to relying apps while keeping private key operations on the user side.
+- A hybrid path could use OIDC for authentication, public keys for simple encryption cases, and iframe/RPC mechanisms for more sensitive operations.
 
 ## Tech stack
 - deno impl to start with
