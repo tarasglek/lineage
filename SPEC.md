@@ -1,5 +1,11 @@
 # passkey invite-network
 
+A standalone login and identity provider for private communities.
+
+Users authenticate with passkeys, not passwords. New accounts are created through invites, forming a chain of trust between members rather than relying on external identity providers like Google.
+
+The system can also act as a standard OAuth provider so that other private apps can delegate authentication to it.
+
 - a network that works like lobste.rs to setup a private identity system disconnected from major identity providers like google, etc
 - each user has:
     * a unique username
@@ -22,7 +28,7 @@
    * since this is a chain of trust, exit means we wipe all keys and mark user as purged, but we keep their uuid
 
 
-### registration
+## registration
 - By default homepage requires pre-registered passkey to login
 - if we one goes to /register then it lets one register a passkey. this url is not advertied....one registers device name and associated pubkey
 - registrations go into data/registrations.yaml which is a list og name+pubkey
@@ -30,11 +36,9 @@
 - if you login and you are not in users.yaml...then you are shown  'in registration queue'
 - once someone moves you into users.yanl you see full app
 
-### log: simple, secure cross-device share
-- server-side rendered via hono
-- textbox on top + submit + enter submits
-- once submitted data goes into data/log.jsonl
-- it is rendered as a line + copy button, kinda like irc, but sorted newest to oldest..also a tag representing what device it came from
+## OAuth
+- We will exposed minimal outh integration ala https://lastlogin.net/developers/
+- eg endpoints, .well-known, no pre-registration
 
 ## Tech stack:
 * deno impl to start with
