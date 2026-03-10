@@ -232,6 +232,47 @@ Deno.test("POST /login/complete rejects an origin mismatch", async () => {
   }
 });
 
+Deno.test("POST /login/complete rejects a tampered signature", async () => {
+  const { app, seedUserWithPasskey } = await createTestApp();
+  const seeded = await seedUserWithPasskey("alice");
+
+  const beginRes = await app.request("/login/begin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: seeded.username }),
+  });
+  const requestOptions = await beginRes.json();
+
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions,
+    credential: {
+      id: seeded.credential.id,
+      userId: seeded.credential.userId,
+      rpId: seeded.credential.rpId,
+      algorithm: seeded.credential.algorithm,
+      publicKey: seeded.credential.publicKey,
+      publicKeyPem: seeded.credential.publicKeyPem,
+      privateKeyPem: seeded.credential.privateKeyPem,
+      signCount: seeded.credential.signCount,
+    },
+  });
+  const assertion = generated.assertionResponse;
+  assertion.response.signature = assertion.response.signature.slice(0, -2) + "ab";
+
+  const res = await app.request("/login/complete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(assertion),
+  });
+
+  if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
+  const body = await res.json();
+  if (body.error !== "invalid_signature") {
+    throw new Error(`expected invalid_signature, got ${body.error}`);
+  }
+});
+
 Deno.test("POST /login/complete rejects a replayed assertion", async () => {
   const { app, seedUserWithPasskey } = await createTestApp();
   const seeded = await seedUserWithPasskey("alice");
