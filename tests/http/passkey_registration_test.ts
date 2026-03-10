@@ -20,6 +20,12 @@ Deno.test("GET /register/passkey renders usable passkey registration page", asyn
   if (!html.includes("id=\"status\"")) {
     throw new Error("missing status box");
   }
+  if (!html.includes('src="/static/passkey-register.js"')) {
+    throw new Error("missing external register script");
+  }
+  if (!html.includes('src="/static/passkey-shared.js"')) {
+    throw new Error("missing shared passkey script");
+  }
 });
 
 Deno.test("POST /register/begin returns WebAuthn creation options for a valid invite", async () => {
