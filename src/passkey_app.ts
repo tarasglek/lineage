@@ -159,13 +159,20 @@ export function createPasskeyApp(state: TestState) {
     if (invite.expiresAt <= Date.now()) return c.json({ error: "invite_expired" }, 410);
 
     const challenge = encodeBase64Url(crypto.randomUUID());
-    const userId = crypto.randomUUID();
-    state.registrationSessions.set(challenge, { challenge, username, inviteToken, userId });
+    const userId = invite.type === "device"
+      ? invite.targetUserId
+      : crypto.randomUUID();
+    if (!userId) return c.json({ error: "invite_missing_target_user" }, 400);
+
+    const effectiveUsername = invite.type === "device"
+      ? state.users.get(userId)?.username ?? username
+      : username;
+    state.registrationSessions.set(challenge, { challenge, username: effectiveUsername, inviteToken, userId });
 
     return c.json({
       challenge,
       rp: { id: "localhost", name: "Lineage invite-network" },
-      user: { id: userId, name: username, displayName: username },
+      user: { id: userId, name: effectiveUsername, displayName: effectiveUsername },
       pubKeyCredParams: [{ type: "public-key", alg: -7 }],
       timeout: 60000,
       attestation: "none",
@@ -194,7 +201,17 @@ export function createPasskeyApp(state: TestState) {
     const invite = state.invites.get(session.inviteToken);
     if (!invite || invite.usedAt) return c.json({ error: "invite_already_used" }, 409);
 
-    state.users.set(session.userId, { id: session.userId, username: session.username });
+    if (invite.type === "user") {
+      state.users.set(session.userId, {
+        id: session.userId,
+        username: session.username,
+        invitedBy: invite.inviterUserId,
+      });
+    } else {
+      const existingUser = state.users.get(session.userId);
+      if (!existingUser) return c.json({ error: "device_invite_user_not_found" }, 404);
+    }
+
     state.credentials.set(body.id, {
       id: body.id,
       publicKey: attestation.authData.publicKey,

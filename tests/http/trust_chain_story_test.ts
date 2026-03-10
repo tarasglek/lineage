@@ -163,7 +163,44 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
   }
 
   function assertTrustChain(): void {
-    throw new Error("not implemented");
+    const rootUser = t.state.users.get(t.providerRootUserId);
+    if (!rootUser) throw new Error("missing provider root user");
+    if (rootUser.invitedBy !== null) throw new Error("provider root should not have inviter");
+
+    const aliceUser = t.state.users.get(firstUser.userId);
+    if (!aliceUser) throw new Error("missing first user");
+    if (aliceUser.invitedBy !== t.providerRootUserId) {
+      throw new Error(`expected alice invitedBy ${t.providerRootUserId}, got ${aliceUser.invitedBy}`);
+    }
+
+    const bobUser = t.state.users.get(secondUser.userId);
+    if (!bobUser) throw new Error("missing second user");
+    if (bobUser.invitedBy !== firstUser.userId) {
+      throw new Error(`expected bob invitedBy ${firstUser.userId}, got ${bobUser.invitedBy}`);
+    }
+
+    const secondUserInviteState = t.state.invites.get(secondUserInvite.token);
+    if (!secondUserInviteState) throw new Error("missing second user invite");
+    if (secondUserInviteState.type !== "user") throw new Error("second user invite should be user type");
+    if (secondUserInviteState.inviterUserId !== firstUser.userId) {
+      throw new Error("second user invite should be created by first user");
+    }
+    if (secondUserInviteState.usedAt === null) throw new Error("second user invite should be consumed");
+
+    for (const deviceInvite of [alicePhoneInvite, aliceLaptopInvite, bobPhoneInvite, bobTabletInvite, bobLaptopInvite]) {
+      const invite = t.state.invites.get(deviceInvite.token);
+      if (!invite) throw new Error(`missing device invite ${deviceInvite.token}`);
+      if (invite.type !== "device") throw new Error(`expected device invite for ${deviceInvite.token}`);
+      if (invite.usedAt === null) throw new Error(`device invite ${deviceInvite.token} should be consumed`);
+    }
+
+    const aliceCredentials = Array.from(t.state.credentials.values()).filter((credential) => credential.userId === firstUser.userId);
+    const bobCredentials = Array.from(t.state.credentials.values()).filter((credential) => credential.userId === secondUser.userId);
+    if (aliceCredentials.length !== 3) throw new Error(`expected 3 alice credentials, got ${aliceCredentials.length}`);
+    if (bobCredentials.length !== 4) throw new Error(`expected 4 bob credentials, got ${bobCredentials.length}`);
+
+    if (t.state.users.size !== 3) throw new Error(`expected 3 users including root, got ${t.state.users.size}`);
+    if (t.state.sessions.length !== 7) throw new Error(`expected 7 login sessions, got ${t.state.sessions.length}`);
   }
 
   await loadBootstrapRegistrationPage();
