@@ -1,17 +1,10 @@
 {
   "nodeModulesDir": "auto",
   "tasks": {
-    "slides": "deno run -A npm:@marp-team/marp-cli slide-deck.md -o dist/index.html --watch",
-    "slides:pptx": "CHROME_PATH=$(./node_modules/.bin/puppeteer browsers list | grep 'chrome@' | tail -n 1 | awk '{print $NF}') deno run -A npm:@marp-team/marp-cli slide-deck.md -o dist/slides.pptx",
-    "install-browser": "deno run -A npm:puppeteer browsers install chrome",
-    "check-browser": "./node_modules/.bin/puppeteer browsers list",
     "bootstrap-invite": "deno run -A scripts/print_bootstrap_invite.ts"
   },
   "imports": {
     "@hono/hono": "npm:hono@^4.0.1",
-    "@hono/oidc-auth": "npm:@hono/oidc-auth@^1.6.0",
-    "@marp-team/marp-cli": "npm:@marp-team/marp-cli@^4.2.3",
-    "@std/http": "jsr:@std/http@^1.0.21",
     "jose": "npm:jose@^6.1.0"
   }
 }
