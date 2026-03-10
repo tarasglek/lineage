@@ -1,5 +1,8 @@
 import { createPasskeyApp } from "./src/passkey_app.ts";
-import { createSqlitePasskeyStorage, initializePasskeyStorageSqlite } from "./src/passkey_storage_sqlite.ts";
+import {
+  createSqlitePasskeyStorage,
+  initializePasskeyStorageSqlite,
+} from "./src/passkey_storage_sqlite.ts";
 
 export async function createMainPasskeyApp(path = "./data/users.sqlite") {
   await initializePasskeyStorageSqlite(path);
@@ -16,7 +19,8 @@ export async function createMainPasskeyApp(path = "./data/users.sqlite") {
   }
 
   let bootstrapInvite = storage.listInvites().find((invite) =>
-    invite.type === "user" && invite.inviterUserId === providerRootUser!.id && invite.label === "bootstrap-user" && invite.usedAt === null
+    invite.type === "user" && invite.inviterUserId === providerRootUser!.id &&
+    invite.label === "bootstrap-user" && invite.usedAt === null
   );
   if (!bootstrapInvite) {
     bootstrapInvite = {

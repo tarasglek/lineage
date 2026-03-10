@@ -36,7 +36,7 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     targetUserId?: string;
   };
 
-  async function loadBootstrapRegistrationPage(): Promise<void> {
+  function loadBootstrapRegistrationPage(): void {
     const invite = t.getInvite(t.bootstrapInviteToken);
     if (!invite) throw new Error("missing bootstrap invite");
     if (invite.type !== "user") {
@@ -55,7 +55,9 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     origin?: string;
   }): Promise<StoryRegistration> {
     const pageRes = await t.app.request(
-      `/register?inviteToken=${encodeURIComponent(input.inviteToken)}&username=${encodeURIComponent(input.username)}`,
+      `/register?inviteToken=${
+        encodeURIComponent(input.inviteToken)
+      }&username=${encodeURIComponent(input.username)}`,
     );
     if (pageRes.status !== 200) {
       throw new Error(`expected register page 200, got ${pageRes.status}`);

@@ -1,7 +1,7 @@
-export async function createTestDb() {
+export function createTestDb() {
   return {
     path: ":memory:",
-    async close() {
+    close() {
       // no-op for now
     },
   };

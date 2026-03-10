@@ -1,25 +1,25 @@
 function passkeyRoot() {
-  return document.querySelector('[data-passkey-flow]');
+  return document.querySelector("[data-passkey-flow]");
 }
 
 function statusEl() {
-  return document.getElementById('status');
+  return document.getElementById("status");
 }
 
 function actionButton() {
-  return document.getElementById('passkey-action');
+  return document.getElementById("passkey-action");
 }
 
-function setStatus(message, kind = '') {
+function setStatus(message, kind = "") {
   const el = statusEl();
   if (!el) return;
   el.textContent = message;
-  el.className = kind ? kind : '';
+  el.className = kind ? kind : "";
 }
 
 function decodeBase64Url(value) {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '==='.slice((normalized.length + 3) % 4);
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "===".slice((normalized.length + 3) % 4);
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -28,9 +28,12 @@ function decodeBase64Url(value) {
 
 function encodeBase64Url(buffer) {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  let binary = '';
+  let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(
+    /=+$/g,
+    "",
+  );
 }
 
 function publicKeyCredentialToJSON(credential) {
@@ -42,18 +45,32 @@ function publicKeyCredentialToJSON(credential) {
     response: {},
   };
 
-  if (response.clientDataJSON) json.response.clientDataJSON = encodeBase64Url(response.clientDataJSON);
-  if (response.attestationObject) json.response.attestationObject = encodeBase64Url(response.attestationObject);
-  if (response.authenticatorData) json.response.authenticatorData = encodeBase64Url(response.authenticatorData);
-  if (response.signature) json.response.signature = encodeBase64Url(response.signature);
-  if (response.userHandle) json.response.userHandle = encodeBase64Url(response.userHandle);
+  if (response.clientDataJSON) {
+    json.response.clientDataJSON = encodeBase64Url(response.clientDataJSON);
+  }
+  if (response.attestationObject) {
+    json.response.attestationObject = encodeBase64Url(
+      response.attestationObject,
+    );
+  }
+  if (response.authenticatorData) {
+    json.response.authenticatorData = encodeBase64Url(
+      response.authenticatorData,
+    );
+  }
+  if (response.signature) {
+    json.response.signature = encodeBase64Url(response.signature);
+  }
+  if (response.userHandle) {
+    json.response.userHandle = encodeBase64Url(response.userHandle);
+  }
   return json;
 }
 
 async function postJson(url, body) {
   const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    method: "POST",
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -70,7 +87,7 @@ async function postJson(url, body) {
 function bindPasskeyAction(handler) {
   const button = actionButton();
   if (!button) return;
-  button.addEventListener('click', () => {
+  button.addEventListener("click", () => {
     void handler(button);
   });
 }

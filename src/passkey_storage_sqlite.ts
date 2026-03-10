@@ -16,9 +16,9 @@ function ensureDirectoryForDb(path: string) {
   }
 }
 
-export async function initializePasskeyStorageSqlite(
+export function initializePasskeyStorageSqlite(
   path: string,
-): Promise<void> {
+): void {
   ensureDirectoryForDb(path);
   const db = new DatabaseSync(path);
   try {

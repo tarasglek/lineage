@@ -97,7 +97,8 @@ function parseCookieHeader(cookieHeader: string | null) {
 }
 
 function getRequestWebAuthnContext(c: Context) {
-  const forwardedProto = c.req.header("x-forwarded-proto")?.split(",")[0]?.trim();
+  const forwardedProto = c.req.header("x-forwarded-proto")?.split(",")[0]
+    ?.trim();
   const forwardedHost = c.req.header("x-forwarded-host")?.split(",")[0]?.trim();
   const hostHeader = c.req.header("host")?.split(",")[0]?.trim();
   const proto = forwardedProto || "http";
@@ -113,11 +114,15 @@ function getRequestWebAuthnContext(c: Context) {
 }
 
 function authCookieValue(token: string, secure = false) {
-  return `auth=${token}; HttpOnly; Path=/; SameSite=Lax${secure ? "; Secure" : ""}`;
+  return `auth=${token}; HttpOnly; Path=/; SameSite=Lax${
+    secure ? "; Secure" : ""
+  }`;
 }
 
 function clearedAuthCookieValue(secure = false) {
-  return `auth=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secure ? "; Secure" : ""}`;
+  return `auth=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${
+    secure ? "; Secure" : ""
+  }`;
 }
 
 async function getAuthenticatedUser(c: Context, storage: PasskeyStorage) {
@@ -139,7 +144,7 @@ function authErrorResponse(c: Context) {
   return c.redirect("/login", 302);
 }
 
-function staticAsset(path: string, contentType: string) {
+function staticAsset(path: string, _contentType: string) {
   return Deno.readTextFileSync(new URL(path, import.meta.url));
 }
 
@@ -147,24 +152,49 @@ export function createPasskeyApp(storage: PasskeyStorage) {
   const app = new Hono();
 
   app.get("/static/style.css", (c) => {
-    return c.text(staticAsset("../static/style.css", "text/css; charset=utf-8"), 200, {
-      "content-type": "text/css; charset=utf-8",
-    });
+    return c.text(
+      staticAsset("../static/style.css", "text/css; charset=utf-8"),
+      200,
+      {
+        "content-type": "text/css; charset=utf-8",
+      },
+    );
   });
   app.get("/static/passkey-shared.js", (c) => {
-    return c.text(staticAsset("../static/passkey-shared.js", "application/javascript; charset=utf-8"), 200, {
-      "content-type": "application/javascript; charset=utf-8",
-    });
+    return c.text(
+      staticAsset(
+        "../static/passkey-shared.js",
+        "application/javascript; charset=utf-8",
+      ),
+      200,
+      {
+        "content-type": "application/javascript; charset=utf-8",
+      },
+    );
   });
   app.get("/static/passkey-register.js", (c) => {
-    return c.text(staticAsset("../static/passkey-register.js", "application/javascript; charset=utf-8"), 200, {
-      "content-type": "application/javascript; charset=utf-8",
-    });
+    return c.text(
+      staticAsset(
+        "../static/passkey-register.js",
+        "application/javascript; charset=utf-8",
+      ),
+      200,
+      {
+        "content-type": "application/javascript; charset=utf-8",
+      },
+    );
   });
   app.get("/static/passkey-login.js", (c) => {
-    return c.text(staticAsset("../static/passkey-login.js", "application/javascript; charset=utf-8"), 200, {
-      "content-type": "application/javascript; charset=utf-8",
-    });
+    return c.text(
+      staticAsset(
+        "../static/passkey-login.js",
+        "application/javascript; charset=utf-8",
+      ),
+      200,
+      {
+        "content-type": "application/javascript; charset=utf-8",
+      },
+    );
   });
 
   app.post("/test/login", async (c) => {
@@ -178,7 +208,10 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       userId: user.id,
       username: user.username,
     });
-    c.header("set-cookie", authCookieValue(token, getRequestWebAuthnContext(c).isSecure));
+    c.header(
+      "set-cookie",
+      authCookieValue(token, getRequestWebAuthnContext(c).isSecure),
+    );
     return c.json({ userId: user.id, username: user.username });
   });
 
@@ -192,7 +225,10 @@ export function createPasskeyApp(storage: PasskeyStorage) {
   app.post("/login", async (c) => {
     const form = await c.req.formData();
     const username = String(form.get("username") ?? "");
-    return c.redirect(`/login/passkey?username=${encodeURIComponent(username)}`, 303);
+    return c.redirect(
+      `/login/passkey?username=${encodeURIComponent(username)}`,
+      303,
+    );
   });
 
   app.get("/login/passkey", (c) => {
@@ -201,7 +237,10 @@ export function createPasskeyApp(storage: PasskeyStorage) {
   });
 
   app.post("/logout", (c) => {
-    c.header("set-cookie", clearedAuthCookieValue(getRequestWebAuthnContext(c).isSecure));
+    c.header(
+      "set-cookie",
+      clearedAuthCookieValue(getRequestWebAuthnContext(c).isSecure),
+    );
     return c.redirect("/login", 303);
   });
 
@@ -215,13 +254,23 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     const form = await c.req.formData();
     const inviteToken = String(form.get("inviteToken") ?? "");
     const username = String(form.get("username") ?? "");
-    return c.redirect(`/register?inviteToken=${encodeURIComponent(inviteToken)}&username=${encodeURIComponent(username)}`, 303);
+    return c.redirect(
+      `/register?inviteToken=${encodeURIComponent(inviteToken)}&username=${
+        encodeURIComponent(username)
+      }`,
+      303,
+    );
   });
 
   app.get("/register/passkey", (c) => {
     const inviteToken = c.req.query("inviteToken") ?? "";
     const username = c.req.query("username") ?? "";
-    return c.redirect(`/register?inviteToken=${encodeURIComponent(inviteToken)}&username=${encodeURIComponent(username)}`, 303);
+    return c.redirect(
+      `/register?inviteToken=${encodeURIComponent(inviteToken)}&username=${
+        encodeURIComponent(username)
+      }`,
+      303,
+    );
   });
 
   app.get("/invites/new", async (c) => {
@@ -274,15 +323,23 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     if (!currentUser) return authErrorResponse(c);
 
     const invitedBy = currentUser.invitedBy ?? "";
-    const invites = storage.listInvites().filter((invite) => invite.inviterUserId === currentUser.id);
-    const credentials = storage.listCredentials().filter((credential) => credential.userId === currentUser.id);
+    const invites = storage.listInvites().filter((invite) =>
+      invite.inviterUserId === currentUser.id
+    );
+    const credentials = storage.listCredentials().filter((credential) =>
+      credential.userId === currentUser.id
+    );
 
     return c.html(accountPage({
       username: currentUser.username,
       userId: currentUser.id,
       invitedBy,
       credentials: credentials.map((credential) => credential.id),
-      invites: invites.map((invite) => ({ token: invite.token, type: invite.type, label: invite.label })),
+      invites: invites.map((invite) => ({
+        token: invite.token,
+        type: invite.type,
+        label: invite.label,
+      })),
     }));
   });
 
@@ -299,11 +356,15 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     const invite = storage.getInvite(inviteToken);
     if (!invite) return c.json({ error: "invite_not_found" }, 404);
     if (invite.usedAt) return c.json({ error: "invite_already_used" }, 409);
-    if (invite.expiresAt <= Date.now()) return c.json({ error: "invite_expired" }, 410);
+    if (invite.expiresAt <= Date.now()) {
+      return c.json({ error: "invite_expired" }, 410);
+    }
 
     const webauthn = getRequestWebAuthnContext(c);
     const challenge = encodeBase64Url(crypto.randomUUID());
-    const userId = invite.type === "device" ? invite.targetUserId : crypto.randomUUID();
+    const userId = invite.type === "device"
+      ? invite.targetUserId
+      : crypto.randomUUID();
     if (!userId) return c.json({ error: "invite_missing_target_user" }, 400);
 
     const effectiveUsername = invite.type === "device"
@@ -321,12 +382,19 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       challenge,
       flowToken,
       rp: { id: webauthn.rpId, name: "Lineage invite-network" },
-      user: { id: userId, name: effectiveUsername, displayName: effectiveUsername },
+      user: {
+        id: userId,
+        name: effectiveUsername,
+        displayName: effectiveUsername,
+      },
       pubKeyCredParams: [{ type: "public-key", alg: -7 }],
       timeout: 60000,
       attestation: "none",
       excludeCredentials: [],
-      authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
+      authenticatorSelection: {
+        residentKey: "preferred",
+        userVerification: "preferred",
+      },
     });
   });
 
@@ -339,22 +407,32 @@ export function createPasskeyApp(storage: PasskeyStorage) {
 
     const clientDataJSON = body?.response?.clientDataJSON;
     const attestationObject = body?.response?.attestationObject;
-    if (!clientDataJSON || !attestationObject) return c.json({ error: "invalid_attestation" }, 400);
+    if (!clientDataJSON || !attestationObject) {
+      return c.json({ error: "invalid_attestation" }, 400);
+    }
 
     let flow;
     try {
       flow = await verifyFlowToken(flowToken, "register");
     } catch (error) {
-      if (isJwtExpiredError(error)) return c.json({ error: "flow_token_expired" }, 400);
+      if (isJwtExpiredError(error)) {
+        return c.json({ error: "flow_token_expired" }, 400);
+      }
       return c.json({ error: "invalid_flow_token" }, 400);
     }
 
     const clientData = JSON.parse(decodeBase64Url(clientDataJSON));
-    if (clientData?.challenge !== flow.challenge) return c.json({ error: "registration_session_not_found" }, 400);
+    if (clientData?.challenge !== flow.challenge) {
+      return c.json({ error: "registration_session_not_found" }, 400);
+    }
 
     const webauthn = getRequestWebAuthnContext(c);
-    const invite = flow.inviteToken ? storage.getInvite(flow.inviteToken) : undefined;
-    if (!invite || invite.usedAt) return c.json({ error: "invite_already_used" }, 409);
+    const invite = flow.inviteToken
+      ? storage.getInvite(flow.inviteToken)
+      : undefined;
+    if (!invite || invite.usedAt) {
+      return c.json({ error: "invite_already_used" }, 409);
+    }
 
     let credentialRecord;
     if (
@@ -398,14 +476,22 @@ export function createPasskeyApp(storage: PasskeyStorage) {
         };
       } catch (error) {
         const message = String(error instanceof Error ? error.message : error);
-        if (message.includes("origin")) return c.json({ error: "origin_mismatch" }, 400);
-        if (message.includes("RpIdHash")) return c.json({ error: "rp_id_mismatch" }, 400);
+        if (message.includes("origin")) {
+          return c.json({ error: "origin_mismatch" }, 400);
+        }
+        if (message.includes("RpIdHash")) {
+          return c.json({ error: "rp_id_mismatch" }, 400);
+        }
         return c.json({ error: "invalid_attestation" }, 400);
       }
     } else {
       const attestation = JSON.parse(decodeBase64Url(attestationObject));
-      if (clientData.origin !== webauthn.origin) return c.json({ error: "origin_mismatch" }, 400);
-      if (attestation?.authData?.rpId !== webauthn.rpId) return c.json({ error: "rp_id_mismatch" }, 400);
+      if (clientData.origin !== webauthn.origin) {
+        return c.json({ error: "origin_mismatch" }, 400);
+      }
+      if (attestation?.authData?.rpId !== webauthn.rpId) {
+        return c.json({ error: "rp_id_mismatch" }, 400);
+      }
       credentialRecord = {
         id: body.id,
         publicKey: attestation.authData.publicKey,
@@ -424,7 +510,11 @@ export function createPasskeyApp(storage: PasskeyStorage) {
           if (existingByUsername && existingByUsername.id !== flow.userId) {
             throw new Error("username_taken");
           }
-          storage.putUser({ id: flow.userId, username: flow.username, invitedBy: invite.inviterUserId });
+          storage.putUser({
+            id: flow.userId,
+            username: flow.username,
+            invitedBy: invite.inviterUserId,
+          });
         } else if (!storage.getUser(flow.userId)) {
           throw new Error("device_invite_user_not_found");
         }
@@ -434,16 +524,25 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       });
     } catch (error) {
       const message = String(error instanceof Error ? error.message : error);
-      if (message === "username_taken") return c.json({ error: "username_taken" }, 409);
+      if (message === "username_taken") {
+        return c.json({ error: "username_taken" }, 409);
+      }
       if (message === "device_invite_user_not_found") {
         return c.json({ error: "device_invite_user_not_found" }, 404);
       }
       throw error;
     }
 
-    const authToken = await signAuthSessionToken({ userId: flow.userId, username: flow.username });
+    const authToken = await signAuthSessionToken({
+      userId: flow.userId,
+      username: flow.username,
+    });
     c.header("set-cookie", authCookieValue(authToken, webauthn.isSecure));
-    return c.json({ credentialId: body.id, userId: flow.userId, username: flow.username });
+    return c.json({
+      credentialId: body.id,
+      userId: flow.userId,
+      username: flow.username,
+    });
   });
 
   app.post("/login/begin", async (c) => {
@@ -457,9 +556,16 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     if (!user) return c.json({ error: "user_not_found" }, 404);
 
     const webauthn = getRequestWebAuthnContext(c);
-    const credentials = storage.listCredentials().filter((credential) => credential.userId === user.id);
+    const credentials = storage.listCredentials().filter((credential) =>
+      credential.userId === user.id
+    );
     const challenge = encodeBase64Url(crypto.randomUUID());
-    const flowToken = await signFlowToken({ flowType: "login", challenge, username, userId: user.id });
+    const flowToken = await signFlowToken({
+      flowType: "login",
+      challenge,
+      username,
+      userId: user.id,
+    });
 
     return c.json({
       challenge,
@@ -467,7 +573,11 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       rpId: webauthn.rpId,
       timeout: 60000,
       userVerification: "preferred",
-      allowCredentials: credentials.map((credential) => ({ id: credential.id, type: "public-key", transports: credential.transports ?? ["internal"] })),
+      allowCredentials: credentials.map((credential) => ({
+        id: credential.id,
+        type: "public-key",
+        transports: credential.transports ?? ["internal"],
+      })),
     });
   });
 
@@ -482,36 +592,63 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     const authenticatorData = body?.response?.authenticatorData;
     const signature = body?.response?.signature;
     const userHandle = body?.response?.userHandle;
-    if (!clientDataJSON || !authenticatorData || !signature || !userHandle) return c.json({ error: "invalid_assertion" }, 400);
+    if (!clientDataJSON || !authenticatorData || !signature || !userHandle) {
+      return c.json({ error: "invalid_assertion" }, 400);
+    }
 
     let flow;
     try {
       flow = await verifyFlowToken(flowToken, "login");
     } catch (error) {
-      if (isJwtExpiredError(error)) return c.json({ error: "flow_token_expired" }, 400);
+      if (isJwtExpiredError(error)) {
+        return c.json({ error: "flow_token_expired" }, 400);
+      }
       return c.json({ error: "invalid_flow_token" }, 400);
     }
 
     const clientData = JSON.parse(decodeBase64Url(clientDataJSON));
     const webauthn = getRequestWebAuthnContext(c);
-    if (clientData?.challenge !== flow.challenge) return c.json({ error: "authentication_session_not_found" }, 400);
-    if (clientData.origin !== webauthn.origin) return c.json({ error: "origin_mismatch" }, 400);
+    if (clientData?.challenge !== flow.challenge) {
+      return c.json({ error: "authentication_session_not_found" }, 400);
+    }
+    if (clientData.origin !== webauthn.origin) {
+      return c.json({ error: "origin_mismatch" }, 400);
+    }
 
     const credential = storage.getCredential(body.id);
     if (!credential) return c.json({ error: "credential_not_found" }, 404);
-    if (credential.userId !== flow.userId) return c.json({ error: "credential_not_owned_by_user" }, 403);
-    const allowedCredentialIds = storage.listCredentials().filter((candidate) => candidate.userId === flow.userId).map((candidate) => candidate.id);
-    if (!allowedCredentialIds.includes(body.id)) return c.json({ error: "credential_not_allowed" }, 403);
-    if (!credential.publicKeyPem) return c.json({ error: "credential_missing_public_key" }, 400);
+    if (credential.userId !== flow.userId) {
+      return c.json({ error: "credential_not_owned_by_user" }, 403);
+    }
+    const allowedCredentialIds = storage.listCredentials().filter((candidate) =>
+      candidate.userId === flow.userId
+    ).map((candidate) => candidate.id);
+    if (!allowedCredentialIds.includes(body.id)) {
+      return c.json({ error: "credential_not_allowed" }, 403);
+    }
+    if (!credential.publicKeyPem) {
+      return c.json({ error: "credential_missing_public_key" }, 400);
+    }
 
     const authData = JSON.parse(decodeBase64Url(authenticatorData));
-    if (authData.rpId !== webauthn.rpId) return c.json({ error: "rp_id_mismatch" }, 400);
-    if (decodeBase64Url(userHandle) !== flow.userId) return c.json({ error: "user_handle_mismatch" }, 403);
-    if (authData.signCount <= credential.signCount) return c.json({ error: "sign_count_rollback" }, 400);
+    if (authData.rpId !== webauthn.rpId) {
+      return c.json({ error: "rp_id_mismatch" }, 400);
+    }
+    if (decodeBase64Url(userHandle) !== flow.userId) {
+      return c.json({ error: "user_handle_mismatch" }, 403);
+    }
+    if (authData.signCount <= credential.signCount) {
+      return c.json({ error: "sign_count_rollback" }, 400);
+    }
 
     let signatureValid = false;
     try {
-      signatureValid = verifyAssertionSignature({ publicKeyPem: credential.publicKeyPem, authenticatorData, clientDataJSON, signature });
+      signatureValid = verifyAssertionSignature({
+        publicKeyPem: credential.publicKeyPem,
+        authenticatorData,
+        clientDataJSON,
+        signature,
+      });
     } catch {
       signatureValid = false;
     }
@@ -520,9 +657,16 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     storage.putCredential({ ...credential, signCount: authData.signCount });
     storage.recordSession({ userId: flow.userId, createdAt: Date.now() });
 
-    const authToken = await signAuthSessionToken({ userId: flow.userId, username: flow.username });
+    const authToken = await signAuthSessionToken({
+      userId: flow.userId,
+      username: flow.username,
+    });
     c.header("set-cookie", authCookieValue(authToken, webauthn.isSecure));
-    return c.json({ credentialId: credential.id, userId: flow.userId, username: flow.username });
+    return c.json({
+      credentialId: credential.id,
+      userId: flow.userId,
+      username: flow.username,
+    });
   });
 
   return app;

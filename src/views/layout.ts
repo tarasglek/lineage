@@ -40,7 +40,11 @@ export function nav(currentUser?: { username: string } | null) {
     </div>
     <nav class="inline-actions">
       <a href="/">Home</a>
-      ${currentUser ? `<a href="/account">Account</a>` : `<a href="/login">Log in</a>`}
+      ${
+    currentUser
+      ? `<a href="/account">Account</a>`
+      : `<a href="/login">Log in</a>`
+  }
     </nav>
   </header>`;
 }

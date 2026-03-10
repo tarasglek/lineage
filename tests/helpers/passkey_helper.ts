@@ -7,8 +7,13 @@ import type {
 } from "./passkey_types.ts";
 
 function toBase64Url(input: string | Uint8Array) {
-  const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const bytes = typeof input === "string"
+    ? new TextEncoder().encode(input)
+    : input;
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(
+    /\//g,
+    "_",
+  ).replace(/=+$/g, "");
 }
 
 function randomId() {
@@ -32,7 +37,7 @@ export function makeCreationOptionsFixture(): CreationOptions {
   };
 }
 
-export async function createAttestationResponse(
+export function createAttestationResponse(
   options: CreationOptions,
 ): Promise<AttestationResponse> {
   return createPasskeyHelper({ id: options.rp.id, origin: "http://localhost" })
@@ -44,7 +49,9 @@ export function createPasskeyHelper(rp: { id: string; origin: string }) {
 
   return {
     credentials,
-    async createAttestationResponse(options: CreationOptions): Promise<AttestationResponse> {
+    createAttestationResponse(
+      options: CreationOptions,
+    ): Promise<AttestationResponse> {
       if (options.rp.id !== rp.id) {
         throw new Error("rp_id_mismatch");
       }
@@ -91,7 +98,7 @@ export function createPasskeyHelper(rp: { id: string; origin: string }) {
         },
       };
     },
-    async createAssertionResponse(
+    createAssertionResponse(
       options: RequestOptions,
       credential: StoredCredential,
     ): Promise<AssertionResponse> {

@@ -1,6 +1,9 @@
 import { runRegisterResponse } from "./passkey_helper_cli.ts";
 import { createPasskeyApp } from "../../src/passkey_app.ts";
-import { createSqlitePasskeyStorage, initializePasskeyStorageSqlite } from "../../src/passkey_storage_sqlite.ts";
+import {
+  createSqlitePasskeyStorage,
+  initializePasskeyStorageSqlite,
+} from "../../src/passkey_storage_sqlite.ts";
 
 export async function createTestApp() {
   const dir = await Deno.makeTempDir();
@@ -85,7 +88,7 @@ export async function createTestApp() {
     listSessions() {
       return storage.listSessions();
     },
-    async seedInvite(overrides?: {
+    seedInvite(overrides?: {
       type?: "user" | "device";
       inviterUserId?: string | null;
       targetUserId?: string;

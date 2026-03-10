@@ -4,7 +4,9 @@ import { createTestApp } from "../helpers/test_app.ts";
 Deno.test("GET /register renders one-step passkey registration page", async () => {
   const { app } = await createTestApp();
 
-  const res = await app.request("/register?inviteToken=test-invite&username=alice");
+  const res = await app.request(
+    "/register?inviteToken=test-invite&username=alice",
+  );
 
   if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
   const html = await res.text();
@@ -20,7 +22,7 @@ Deno.test("GET /register renders one-step passkey registration page", async () =
   if (!html.includes("Create account with passkey")) {
     throw new Error("missing passkey action button");
   }
-  if (!html.includes("id=\"status\"")) {
+  if (!html.includes('id="status"')) {
     throw new Error("missing status box");
   }
   if (!html.includes('src="/static/passkey-register.js?time=')) {
@@ -33,9 +35,15 @@ Deno.test("GET /register renders one-step passkey registration page", async () =
 
 Deno.test("GET /register/passkey redirects back to one-step register page", async () => {
   const { app } = await createTestApp();
-  const res = await app.request("/register/passkey?inviteToken=test-invite&username=alice", { redirect: "manual" });
+  const res = await app.request(
+    "/register/passkey?inviteToken=test-invite&username=alice",
+    { redirect: "manual" },
+  );
   if (res.status !== 303) throw new Error(`expected 303, got ${res.status}`);
-  if (res.headers.get("location") !== "/register?inviteToken=test-invite&username=alice") {
+  if (
+    res.headers.get("location") !==
+      "/register?inviteToken=test-invite&username=alice"
+  ) {
     throw new Error(`unexpected redirect: ${res.headers.get("location")}`);
   }
 });

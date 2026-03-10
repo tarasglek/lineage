@@ -46,7 +46,7 @@ Deno.test("GET /login/passkey renders usable passkey login page", async () => {
   if (!html.includes("Sign in with passkey")) {
     throw new Error("missing passkey action button");
   }
-  if (!html.includes("id=\"status\"")) {
+  if (!html.includes('id="status"')) {
     throw new Error("missing status box");
   }
   if (!html.includes('src="/static/passkey-login.js?time=')) {
