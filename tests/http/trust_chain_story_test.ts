@@ -142,6 +142,7 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
       transports?: string[];
     };
   }): Promise<void> {
+    const sessionsBefore = t.state.sessions.length;
     const beginRes = await t.app.request("/login/begin", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -160,6 +161,20 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
       body: JSON.stringify(generated.assertionResponse),
     });
     if (completeRes.status !== 200) throw new Error(`expected login complete 200, got ${completeRes.status}`);
+    const body = await completeRes.json();
+    if (body.userId !== input.credential.userId) {
+      throw new Error(`expected login userId ${input.credential.userId}, got ${body.userId}`);
+    }
+    if (body.credentialId !== input.credential.id) {
+      throw new Error(`expected login credentialId ${input.credential.id}, got ${body.credentialId}`);
+    }
+    if (body.username !== input.username) {
+      throw new Error(`expected login username ${input.username}, got ${body.username}`);
+    }
+    const sessionsAfter = t.state.sessions.length;
+    if (sessionsAfter !== sessionsBefore + 1) {
+      throw new Error(`expected sessions to increment from ${sessionsBefore} to ${sessionsBefore + 1}, got ${sessionsAfter}`);
+    }
   }
 
   function assertTrustChain(): void {
