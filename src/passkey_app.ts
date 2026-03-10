@@ -1,4 +1,5 @@
 import { type Context, Hono } from "@hono/hono";
+import { server as webauthnServer } from "@passwordless-id/webauthn";
 import {
   createHash,
   createPublicKey,
@@ -56,19 +57,33 @@ function encodeBase64Url(value: string) {
   );
 }
 
+function coseAlgorithmToNumber(algorithm: string | number) {
+  if (typeof algorithm === "number") return algorithm;
+  switch (algorithm) {
+    case "ES256":
+      return -7;
+    case "RS256":
+      return -257;
+    case "EdDSA":
+      return -8;
+    default:
+      throw new Error(`unsupported_algorithm:${algorithm}`);
+  }
+}
+
+function isLikelyJsonPayload(base64url: string) {
+  try {
+    const decoded = decodeBase64Url(base64url);
+    return decoded.startsWith("{") || decoded.startsWith("[");
+  } catch {
+    return false;
+  }
+}
+
 function decodeBase64Url(value: string) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized + "===".slice((normalized.length + 3) % 4);
   return atob(padded);
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 function parseCookieHeader(cookieHeader: string | null) {
@@ -427,16 +442,9 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     if (!user) return c.json({ error: "user_not_found" }, 404);
 
     const webauthn = getRequestWebAuthnContext(c);
-    const credentials = storage.listCredentials().filter((credential) =>
-      credential.userId === user.id
-    );
+    const credentials = storage.listCredentials().filter((credential) => credential.userId === user.id);
     const challenge = encodeBase64Url(crypto.randomUUID());
-    const flowToken = await signFlowToken({
-      flowType: "login",
-      challenge,
-      username,
-      userId: user.id,
-    });
+    const flowToken = await signFlowToken({ flowType: "login", challenge, username, userId: user.id });
 
     return c.json({
       challenge,
@@ -444,11 +452,7 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       rpId: webauthn.rpId,
       timeout: 60000,
       userVerification: "preferred",
-      allowCredentials: credentials.map((credential) => ({
-        id: credential.id,
-        type: "public-key",
-        transports: credential.transports ?? ["internal"],
-      })),
+      allowCredentials: credentials.map((credential) => ({ id: credential.id, type: "public-key", transports: credential.transports ?? ["internal"] })),
     });
   });
 
