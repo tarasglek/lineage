@@ -1,53 +1,41 @@
 import { createTestApp } from "../helpers/test_app.ts";
 
-Deno.test("GET /login returns login form", async () => {
+Deno.test("GET /login renders passkey-first sign-in page", async () => {
   const { app } = await createTestApp();
 
   const res = await app.request("/login");
 
   if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
   const html = await res.text();
-  if (!html.includes('<form method="post" action="/login">')) {
-    throw new Error("missing login form");
+  if (!html.includes("Sign in with passkey")) {
+    throw new Error("missing passkey-first sign-in action");
   }
-  if (!html.includes('name="username"')) {
-    throw new Error("missing username input");
+  if (html.includes('name="username"')) {
+    throw new Error("login page should not require username entry");
   }
-});
-
-Deno.test("POST /login redirects to /login/passkey with username", async () => {
-  const { app } = await createTestApp();
-
-  const res = await app.request("/login", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ username: "alice" }),
-    redirect: "manual",
-  });
-
-  if (res.status !== 303) throw new Error(`expected 303, got ${res.status}`);
-  if (res.headers.get("location") !== "/login/passkey?username=alice") {
-    throw new Error(
-      `unexpected redirect location: ${res.headers.get("location")}`,
-    );
+  if (!html.includes('src="/static/passkey-login.js?time=')) {
+    throw new Error("missing external login script");
+  }
+  if (!html.includes('src="/static/passkey-shared.js?time=')) {
+    throw new Error("missing shared passkey script");
   }
 });
 
 Deno.test("GET /login/passkey renders usable passkey login page", async () => {
   const { app } = await createTestApp();
 
-  const res = await app.request("/login/passkey?username=alice");
+  const res = await app.request("/login/passkey");
 
   if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
   const html = await res.text();
-  if (!html.includes('data-username="alice"')) {
-    throw new Error("missing passkey login username");
-  }
   if (!html.includes("Sign in with passkey")) {
     throw new Error("missing passkey action button");
   }
   if (!html.includes('id="status"')) {
     throw new Error("missing status box");
+  }
+  if (html.includes('name="username"')) {
+    throw new Error("passkey login page should not ask for username");
   }
   if (!html.includes('src="/static/passkey-login.js?time=')) {
     throw new Error("missing external login script");

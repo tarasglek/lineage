@@ -1,7 +1,7 @@
 import { runRegisterResponse } from "../helpers/passkey_helper_cli.ts";
 import { createTestApp } from "../helpers/test_app.ts";
 
-Deno.test("GET /register renders one-step passkey registration page", async () => {
+Deno.test("GET /register renders invitation acceptance page", async () => {
   const { app } = await createTestApp();
 
   const res = await app.request(
@@ -10,6 +10,9 @@ Deno.test("GET /register renders one-step passkey registration page", async () =
 
   if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
   const html = await res.text();
+  if (!html.includes("Accept invitation")) {
+    throw new Error("missing invitation heading");
+  }
   if (!html.includes('data-invite-token="test-invite"')) {
     throw new Error("missing invite token");
   }

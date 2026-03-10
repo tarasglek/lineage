@@ -9,9 +9,8 @@ export function landingPage(currentUser?: { username: string } | null) {
       sectionCard(`
       <h1>Lineage invite-network</h1>
       <p>A self-hosted, invite-only passkey identity provider for private communities.</p>
-      <p class="muted">Access enters through explicit invites, and invitation ancestry remains visible as a trust signal.</p>
       <div class="actions">
-        <a href="/login">Log in</a>
+        <a href="/login">Sign in</a>
         ${currentUser ? `<a href="/account">Go to your account</a>` : ""}
       </div>
     `)
@@ -24,11 +23,7 @@ export function landingPage(currentUser?: { username: string } | null) {
           <button type="submit">Log out</button>
         </form>
       `)
-        : sectionCard(`
-        <h2>First-time setup</h2>
-        <p>Start with a registration invite link, then create a passkey in your browser.</p>
-        <p class="muted">If you do not have an invite yet, generate the bootstrap invite from the server with <code>deno task bootstrap-invite</code>.</p>
-      `)
+        : ""
     }
   `,
   );
@@ -41,12 +36,16 @@ export function loginPage() {
     ${nav(null)}
     ${
       sectionCard(`
-      <h1>Log in</h1>
-      <p>Enter your username, then continue with your passkey.</p>
-      <form method="post" action="/login">
-        <input name="username" placeholder="username" autocomplete="username webauthn" required>
-        <button type="submit">Continue</button>
-      </form>
+      <section data-passkey-flow="login">
+        <h1>Sign in</h1>
+        <p>Use a saved passkey or security key to sign in.</p>
+        <div class="actions">
+          <button id="passkey-action" type="button">Sign in with passkey</button>
+        </div>
+        <div id="status">Ready.</div>
+      </section>
+      <script src="${assetUrl("/static/passkey-shared.js")}"></script>
+      <script src="${assetUrl("/static/passkey-login.js")}"></script>
     `)
     }
   `,
@@ -90,8 +89,8 @@ export function registerPage(inviteToken: string, username = "") {
       <section data-passkey-flow="register" data-invite-token="${
         escapeHtml(inviteToken)
       }" data-username="${escapeHtml(username)}">
-        <h1>Create account</h1>
-        <p>Choose your username and create a passkey in one step.</p>
+        <h1>Accept invitation</h1>
+        <p>Create your account and register a passkey in one step.</p>
         <label>
           <span class="muted">Invite token</span>
           <input name="inviteTokenDisplay" value="${
