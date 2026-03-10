@@ -1,6 +1,6 @@
 import { createTestApp } from "../helpers/test_app.ts";
 
-Deno.test("GET /account shows trust chain details for authenticated user", async () => {
+Deno.test("GET /account shows identity-first account view for authenticated user", async () => {
   const t = await createTestApp();
   const alice = await t.seedUserWithPasskey("alice");
   const bob = await t.seedUserWithPasskey("bob");
@@ -26,11 +26,23 @@ Deno.test("GET /account shows trust chain details for authenticated user", async
   if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
 
   const html = await res.text();
+  if (!html.includes("Signed in as bob")) {
+    throw new Error("missing identity headline");
+  }
   if (!html.includes('data-username="bob"')) {
     throw new Error("missing username");
   }
   if (!html.includes(`data-invited-by="${alice.userId}"`)) {
     throw new Error("missing invited-by");
+  }
+  if (!html.includes("<h2>Passkeys</h2>")) {
+    throw new Error("missing passkeys section");
+  }
+  if (!html.includes("Add another passkey")) {
+    throw new Error("missing add passkey action");
+  }
+  if (!html.includes("<h2>Invite user</h2>")) {
+    throw new Error("missing invite user section");
   }
   if (!html.includes(`data-invite-token="${bobInvite}"`)) {
     throw new Error("missing created invite");
@@ -41,10 +53,16 @@ Deno.test("GET /account shows trust chain details for authenticated user", async
   if (!html.includes('href="/invites/new?type=user"')) {
     throw new Error("missing user invite link");
   }
-  if (!html.includes('href="/invites/new?type=device')) {
-    throw new Error("missing device invite link");
+  if (html.includes("Create device invite")) {
+    throw new Error("should not use device invite wording on account page");
   }
   if (!html.includes('action="/logout"')) {
     throw new Error("missing logout form");
+  }
+
+  const passkeysIndex = html.indexOf("<h2>Passkeys</h2>");
+  const inviteIndex = html.indexOf("<h2>Invite user</h2>");
+  if (passkeysIndex === -1 || inviteIndex === -1 || passkeysIndex > inviteIndex) {
+    throw new Error("passkeys section should come before invite user");
   }
 });

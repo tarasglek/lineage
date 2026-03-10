@@ -154,14 +154,21 @@ export function inviteCreatedPage(
     inviteUrl: string;
   },
 ) {
+  const heading = input.type === "user"
+    ? "User invitation ready"
+    : "Passkey enrollment link ready";
   return page(
     "Invite created",
     `
     ${nav(null)}
     ${
       sectionCard(`
-      <h1>Invite created</h1>
-      <p>Your ${escapeHtml(input.type)} invite is ready.</p>
+      <h1>${escapeHtml(heading)}</h1>
+      <p>${
+        input.type === "user"
+          ? "Share this link so someone can accept the invitation and create an account."
+          : "Open this link on the device where you want to add another passkey."
+      }</p>
       <p><a href="${escapeHtml(input.inviteUrl)}">${
         escapeHtml(input.inviteUrl)
       }</a></p>
@@ -197,7 +204,8 @@ export function accountPage(
     ${nav({ username: input.username })}
     ${
       sectionCard(`
-      <h1>Account</h1>
+      <h1>Signed in as ${escapeHtml(input.username)}</h1>
+      <p class="muted">Manage your account, passkeys, and invitations.</p>
       <div data-username="${escapeHtml(input.username)}" data-user-id="${
         escapeHtml(input.userId)
       }" data-invited-by="${escapeHtml(input.invitedBy)}"></div>
@@ -208,12 +216,6 @@ export function accountPage(
         escapeHtml(input.invitedBy || "provider-root")
       }</li>
       </ul>
-      <div class="inline-actions">
-        <a href="/invites/new?type=user">Create user invite</a>
-        <a href="/invites/new?type=device&targetUserId=${
-        encodeURIComponent(input.userId)
-      }">Create device invite</a>
-      </div>
       <form method="post" action="/logout">
         <button type="submit">Log out</button>
       </form>
@@ -222,6 +224,11 @@ export function accountPage(
     ${
       sectionCard(`
       <h2>Passkeys</h2>
+      <div class="inline-actions">
+        <a href="/invites/new?type=device&targetUserId=${
+        encodeURIComponent(input.userId)
+      }">Add another passkey</a>
+      </div>
       <ul class="list">
         ${
         input.credentials.map((id) =>
@@ -233,7 +240,10 @@ export function accountPage(
     }
     ${
       sectionCard(`
-      <h2>Invites you created</h2>
+      <h2>Invite user</h2>
+      <div class="inline-actions">
+        <a href="/invites/new?type=user">Invite user</a>
+      </div>
       <ul class="list">
         ${
         input.invites.map((invite) =>

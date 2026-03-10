@@ -33,7 +33,7 @@ Deno.test("POST /invites redirects unauthenticated access to /login", async () =
   }
 });
 
-Deno.test("authenticated user can create an invite and inviter comes from session", async () => {
+Deno.test("authenticated user can create a user invite and inviter comes from session", async () => {
   const { app, seedUserWithPasskey, getInvite } = await createTestApp();
   const alice = await seedUserWithPasskey("alice");
 
@@ -63,6 +63,9 @@ Deno.test("authenticated user can create an invite and inviter comes from sessio
   if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
 
   const html = await res.text();
+  if (!html.includes("User invitation ready")) {
+    throw new Error("missing user invitation heading");
+  }
   const token = html.match(/data-token="([^"]+)"/)?.[1];
   if (!token) throw new Error("missing invite token");
   const invite = getInvite(token);
