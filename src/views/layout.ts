@@ -7,6 +7,14 @@ export function escapeHtml(value: string) {
     .replaceAll("'", "&#39;");
 }
 
+function cacheBustUrl(path: string) {
+  return `${path}?time=${Date.now()}`;
+}
+
+export function assetUrl(path: string) {
+  return cacheBustUrl(path);
+}
+
 export function page(title: string, body: string) {
   return `<!doctype html>
 <html lang="en">
@@ -14,7 +22,7 @@ export function page(title: string, body: string) {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${escapeHtml(title)}</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="${assetUrl("/static/style.css")}">
   </head>
   <body>
     <main class="page-shell">

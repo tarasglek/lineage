@@ -49,10 +49,10 @@ Deno.test("GET /login/passkey renders usable passkey login page", async () => {
   if (!html.includes("id=\"status\"")) {
     throw new Error("missing status box");
   }
-  if (!html.includes('src="/static/passkey-login.js"')) {
+  if (!html.includes('src="/static/passkey-login.js?time=')) {
     throw new Error("missing external login script");
   }
-  if (!html.includes('src="/static/passkey-shared.js"')) {
+  if (!html.includes('src="/static/passkey-shared.js?time=')) {
     throw new Error("missing shared passkey script");
   }
 });

@@ -1,4 +1,4 @@
-import { escapeHtml, nav, page, sectionCard } from "./layout.ts";
+import { assetUrl, escapeHtml, nav, page, sectionCard } from "./layout.ts";
 
 export function landingPage(currentUser?: { username: string } | null) {
   return page("Lineage invite-network", `
@@ -55,8 +55,8 @@ export function loginPasskeyPage(username: string) {
         </div>
         <div id="status">Ready.</div>
       </section>
-      <script src="/static/passkey-shared.js"></script>
-      <script src="/static/passkey-login.js"></script>
+      <script src="${assetUrl("/static/passkey-shared.js")}"></script>
+      <script src="${assetUrl("/static/passkey-login.js")}"></script>
     `)}
   `);
 }
@@ -78,8 +78,8 @@ export function registerPage(inviteToken: string, username = "") {
         </div>
         <div id="status">Ready.</div>
       </section>
-      <script src="/static/passkey-shared.js"></script>
-      <script src="/static/passkey-register.js"></script>
+      <script src="${assetUrl("/static/passkey-shared.js")}"></script>
+      <script src="${assetUrl("/static/passkey-register.js")}"></script>
     `)}
   `);
 }

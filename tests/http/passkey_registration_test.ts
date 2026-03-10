@@ -23,10 +23,10 @@ Deno.test("GET /register renders one-step passkey registration page", async () =
   if (!html.includes("id=\"status\"")) {
     throw new Error("missing status box");
   }
-  if (!html.includes('src="/static/passkey-register.js"')) {
+  if (!html.includes('src="/static/passkey-register.js?time=')) {
     throw new Error("missing external register script");
   }
-  if (!html.includes('src="/static/passkey-shared.js"')) {
+  if (!html.includes('src="/static/passkey-shared.js?time=')) {
     throw new Error("missing shared passkey script");
   }
 });
