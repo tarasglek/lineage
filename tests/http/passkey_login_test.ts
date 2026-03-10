@@ -1,5 +1,4 @@
 import { runLoginResponse } from "../helpers/passkey_helper_cli.ts";
-import { createPasskeyHelper } from "../helpers/fake_passkey_helper.ts";
 import { createTestApp } from "../helpers/test_app.ts";
 
 Deno.test("POST /login/begin returns assertion options for a known account", async () => {
@@ -65,13 +64,17 @@ Deno.test("POST /login/complete accepts a valid assertion response", async () =>
 Deno.test("POST /login/complete rejects a wrong challenge", async () => {
   const { app, seedUserWithPasskey } = await createTestApp();
   const seeded = await seedUserWithPasskey("alice");
-  const helper = seeded.passkeyHelper;
 
-  const assertion = await helper.createAssertionResponse({
-    challenge: "wrong-challenge",
-    rpId: "localhost",
-    allowCredentials: [{ id: seeded.credential.id, type: "public-key" }],
-  }, seeded.credential);
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions: {
+      challenge: "wrong-challenge",
+      rpId: "localhost",
+      allowCredentials: [{ id: seeded.credential.id, type: "public-key" }],
+    },
+    credential: seeded.credential,
+  });
+  const assertion = generated.assertionResponse;
 
   const res = await app.request("/login/complete", {
     method: "POST",
@@ -89,13 +92,17 @@ Deno.test("POST /login/complete rejects a wrong challenge", async () => {
 Deno.test("POST /login/complete rejects a missing session", async () => {
   const { app, seedUserWithPasskey } = await createTestApp();
   const seeded = await seedUserWithPasskey("alice");
-  const helper = seeded.passkeyHelper;
 
-  const assertion = await helper.createAssertionResponse({
-    challenge: "missing-session",
-    rpId: "localhost",
-    allowCredentials: [{ id: seeded.credential.id, type: "public-key" }],
-  }, seeded.credential);
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions: {
+      challenge: "missing-session",
+      rpId: "localhost",
+      allowCredentials: [{ id: seeded.credential.id, type: "public-key" }],
+    },
+    credential: seeded.credential,
+  });
+  const assertion = generated.assertionResponse;
 
   const res = await app.request("/login/complete", {
     method: "POST",
@@ -121,11 +128,15 @@ Deno.test("POST /login/complete rejects an unknown credential id", async () => {
   });
   const requestOptions = await beginRes.json();
 
-  const helper = seeded.passkeyHelper;
-  const assertion = await helper.createAssertionResponse(requestOptions, {
-    ...seeded.credential,
-    id: "unknown-credential",
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions,
+    credential: {
+      ...seeded.credential,
+      id: "unknown-credential",
+    },
   });
+  const assertion = generated.assertionResponse;
 
   const res = await app.request("/login/complete", {
     method: "POST",
@@ -152,8 +163,12 @@ Deno.test("POST /login/complete rejects a credential not owned by the user", asy
   });
   const requestOptions = await beginRes.json();
 
-  const helper = bob.passkeyHelper;
-  const assertion = await helper.createAssertionResponse(requestOptions, bob.credential);
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions,
+    credential: bob.credential,
+  });
+  const assertion = generated.assertionResponse;
 
   const session = state.authenticationSessions.get(requestOptions.challenge);
   if (!session) throw new Error("missing authentication session");
@@ -186,11 +201,15 @@ Deno.test("POST /login/complete rejects a counter rollback", async () => {
   });
   const requestOptions = await beginRes.json();
 
-  const helper = seeded.passkeyHelper;
-  const assertion = await helper.createAssertionResponse(requestOptions, {
-    ...seeded.credential,
-    signCount: 0,
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions,
+    credential: {
+      ...seeded.credential,
+      signCount: 0,
+    },
   });
+  const assertion = generated.assertionResponse;
 
   const res = await app.request("/login/complete", {
     method: "POST",
@@ -216,8 +235,24 @@ Deno.test("POST /login/complete rejects an origin mismatch", async () => {
   });
   const requestOptions = await beginRes.json();
 
-  const helper = createPasskeyHelper({ id: "localhost", origin: "https://evil.example" });
-  const assertion = await helper.createAssertionResponse(requestOptions, seeded.credential);
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions,
+    credential: {
+      id: seeded.credential.id,
+      userId: seeded.credential.userId,
+      rpId: seeded.credential.rpId,
+      algorithm: seeded.credential.algorithm,
+      publicKey: seeded.credential.publicKey,
+      publicKeyPem: seeded.credential.publicKeyPem,
+      privateKeyPem: seeded.credential.privateKeyPem,
+      signCount: seeded.credential.signCount,
+    },
+  });
+  const assertion = generated.assertionResponse;
+  const clientData = JSON.parse(atob(assertion.response.clientDataJSON.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((assertion.response.clientDataJSON.length + 3) % 4)));
+  clientData.origin = "https://evil.example";
+  assertion.response.clientDataJSON = btoa(JSON.stringify(clientData)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 
   const res = await app.request("/login/complete", {
     method: "POST",

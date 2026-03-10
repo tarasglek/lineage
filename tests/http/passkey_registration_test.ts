@@ -1,5 +1,4 @@
 import { runRegisterResponse } from "../helpers/passkey_helper_cli.ts";
-import { createPasskeyHelper } from "../helpers/fake_passkey_helper.ts";
 import { createTestApp } from "../helpers/test_app.ts";
 
 Deno.test("POST /register/begin returns WebAuthn creation options for a valid invite", async () => {
@@ -123,13 +122,16 @@ Deno.test("POST /register/complete accepts a valid attestation response", async 
 
 Deno.test("POST /register/complete rejects a missing stored challenge", async () => {
   const { app } = await createTestApp();
-  const helper = createPasskeyHelper({ id: "localhost", origin: "http://localhost" });
-  const attestation = await helper.createAttestationResponse({
-    challenge: "missing-session-challenge",
-    rp: { id: "localhost", name: "Lineage invite-network" },
-    user: { id: "user-1", name: "alice", displayName: "alice" },
-    pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+  const generated = await runRegisterResponse({
+    origin: "http://localhost",
+    creationOptions: {
+      challenge: "missing-session-challenge",
+      rp: { id: "localhost", name: "Lineage invite-network" },
+      user: { id: "user-1", name: "alice", displayName: "alice" },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+    },
   });
+  const attestation = generated.attestationResponse;
 
   const res = await app.request("/register/complete", {
     method: "POST",
@@ -155,8 +157,8 @@ Deno.test("POST /register/complete rejects a replayed completion request", async
   });
   const creationOptions = await beginRes.json();
 
-  const helper = createPasskeyHelper({ id: creationOptions.rp.id, origin: "http://localhost" });
-  const attestation = await helper.createAttestationResponse(creationOptions);
+  const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
+  const attestation = generated.attestationResponse;
 
   const firstRes = await app.request("/register/complete", {
     method: "POST",
@@ -189,8 +191,8 @@ Deno.test("POST /register/complete rejects a reused invite", async () => {
   });
   const creationOptions = await beginRes.json();
 
-  const helper = createPasskeyHelper({ id: creationOptions.rp.id, origin: "http://localhost" });
-  const attestation = await helper.createAttestationResponse(creationOptions);
+  const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
+  const attestation = generated.attestationResponse;
 
   const invite = state.invites.get(inviteToken);
   if (!invite) throw new Error("missing invite");
@@ -220,8 +222,11 @@ Deno.test("POST /register/complete rejects an origin mismatch", async () => {
   });
   const creationOptions = await beginRes.json();
 
-  const helper = createPasskeyHelper({ id: creationOptions.rp.id, origin: "https://evil.example" });
-  const attestation = await helper.createAttestationResponse(creationOptions);
+  const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
+  const attestation = generated.attestationResponse;
+  const clientData = JSON.parse(atob(attestation.response.clientDataJSON.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((attestation.response.clientDataJSON.length + 3) % 4)));
+  clientData.origin = "https://evil.example";
+  attestation.response.clientDataJSON = btoa(JSON.stringify(clientData)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 
   const res = await app.request("/register/complete", {
     method: "POST",
@@ -247,8 +252,8 @@ Deno.test("POST /register/complete rejects an RP ID mismatch", async () => {
   });
   const creationOptions = await beginRes.json();
 
-  const helper = createPasskeyHelper({ id: creationOptions.rp.id, origin: "http://localhost" });
-  const attestation = await helper.createAttestationResponse(creationOptions);
+  const generated = await runRegisterResponse({ origin: "http://localhost", creationOptions });
+  const attestation = generated.attestationResponse;
   const attestationObjectJson = JSON.parse(atob(attestation.response.attestationObject.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((attestation.response.attestationObject.length + 3) % 4)));
   attestationObjectJson.authData.rpId = "evil.example";
   attestation.response.attestationObject = btoa(JSON.stringify(attestationObjectJson)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");

@@ -1,5 +1,4 @@
 import { runRegisterResponse } from "./passkey_helper_cli.ts";
-import { createPasskeyHelper } from "./fake_passkey_helper.ts";
 import { createPasskeyApp, type TestState } from "../../src/passkey_app.ts";
 import { createTestDb } from "./test_db.ts";
 
@@ -55,24 +54,11 @@ export async function createTestApp() {
         transports: ["internal"],
       };
       state.credentials.set(credential.id, credential);
-      const passkeyHelper = createPasskeyHelper({ id: "localhost", origin: "http://localhost" });
-      passkeyHelper.credentials.set(credential.id, {
-        id: credential.id,
-        publicKey: credential.publicKey,
-        publicKeyPem: credential.publicKeyPem,
-        privateKeyPem: credential.privateKeyPem,
-        rpId: credential.rpId,
-        algorithm: credential.algorithm,
-        signCount: credential.signCount,
-        userId,
-        transports: ["internal"],
-      });
 
       return {
         username,
         userId,
         credential,
-        passkeyHelper,
       };
     },
   };
