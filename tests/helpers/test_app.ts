@@ -1,5 +1,5 @@
 import { runRegisterResponse } from "./passkey_helper_cli.ts";
-import { createPasskeyHelper } from "./passkey_helper.ts";
+import { createPasskeyHelper } from "./fake_passkey_helper.ts";
 import { createPasskeyApp, type TestState } from "../../src/passkey_app.ts";
 import { createTestDb } from "./test_db.ts";
 

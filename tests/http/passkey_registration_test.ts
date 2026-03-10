@@ -1,5 +1,5 @@
 import { runRegisterResponse } from "../helpers/passkey_helper_cli.ts";
-import { createPasskeyHelper } from "../helpers/passkey_helper.ts";
+import { createPasskeyHelper } from "../helpers/fake_passkey_helper.ts";
 import { createTestApp } from "../helpers/test_app.ts";
 
 Deno.test("POST /register/begin returns WebAuthn creation options for a valid invite", async () => {
