@@ -25,8 +25,13 @@
       return;
     }
 
-    const username = root?.dataset.username || '';
+    const usernameInput = document.getElementById('username');
+    const username = usernameInput ? usernameInput.value.trim() : (root?.dataset.username || '');
     const inviteToken = root?.dataset.inviteToken || '';
+     if (!username) {
+      shared.setStatus('Username is required.', 'error');
+      return;
+    }
     button.disabled = true;
     shared.setStatus('Preparing passkey registration...');
 

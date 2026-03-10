@@ -61,36 +61,20 @@ export function loginPasskeyPage(username: string) {
   `);
 }
 
-export function registerPage(inviteToken: string) {
+export function registerPage(inviteToken: string, username = "") {
   return page("Register", `
     ${nav(null)}
     ${sectionCard(`
-      <h1>Create account</h1>
-      <p>Choose your username, then create a passkey on the next page.</p>
-      <form method="post" action="/register">
-        <input type="hidden" name="inviteToken" value="${escapeHtml(inviteToken)}">
+      <section data-passkey-flow="register" data-invite-token="${escapeHtml(inviteToken)}" data-username="${escapeHtml(username)}">
+        <h1>Create account</h1>
+        <p>Choose your username and create a passkey in one step.</p>
         <label>
           <span class="muted">Invite token</span>
           <input name="inviteTokenDisplay" value="${escapeHtml(inviteToken)}" disabled>
         </label>
-        <input name="username" placeholder="username" autocomplete="username" required>
-        <button type="submit">Continue to passkey setup</button>
-      </form>
-    `)}
-  `);
-}
-
-export function registerPasskeyPage(inviteToken: string, username: string) {
-  return page("Passkey registration", `
-    ${nav(null)}
-    ${sectionCard(`
-      <section data-passkey-flow="register" data-invite-token="${escapeHtml(inviteToken)}" data-username="${escapeHtml(username)}">
-        <h1>Create your passkey</h1>
-        <p>Username: <strong>${escapeHtml(username)}</strong></p>
-        <p class="muted">This uses your browser or device authenticator to create a phishing-resistant login credential.</p>
+        <input id="username" name="username" value="${escapeHtml(username)}" placeholder="username" autocomplete="username" required>
         <div class="actions">
-          <button id="passkey-action" type="button">Create passkey</button>
-          <a href="/register?inviteToken=${encodeURIComponent(inviteToken)}">Back</a>
+          <button id="passkey-action" type="button">Create account with passkey</button>
         </div>
         <div id="status">Ready.</div>
       </section>

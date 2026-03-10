@@ -22,7 +22,6 @@ import {
   loginPage,
   loginPasskeyPage,
   registerPage,
-  registerPasskeyPage,
 } from "./views/pages.ts";
 
 function verifyAssertionSignature(input: {
@@ -208,20 +207,21 @@ export function createPasskeyApp(storage: PasskeyStorage) {
 
   app.get("/register", (c) => {
     const inviteToken = c.req.query("inviteToken") ?? "";
-    return c.html(registerPage(inviteToken));
+    const username = c.req.query("username") ?? "";
+    return c.html(registerPage(inviteToken, username));
   });
 
   app.post("/register", async (c) => {
     const form = await c.req.formData();
     const inviteToken = String(form.get("inviteToken") ?? "");
     const username = String(form.get("username") ?? "");
-    return c.redirect(`/register/passkey?inviteToken=${encodeURIComponent(inviteToken)}&username=${encodeURIComponent(username)}`, 303);
+    return c.redirect(`/register?inviteToken=${encodeURIComponent(inviteToken)}&username=${encodeURIComponent(username)}`, 303);
   });
 
   app.get("/register/passkey", (c) => {
     const inviteToken = c.req.query("inviteToken") ?? "";
     const username = c.req.query("username") ?? "";
-    return c.html(registerPasskeyPage(inviteToken, username));
+    return c.redirect(`/register?inviteToken=${encodeURIComponent(inviteToken)}&username=${encodeURIComponent(username)}`, 303);
   });
 
   app.get("/invites/new", async (c) => {
