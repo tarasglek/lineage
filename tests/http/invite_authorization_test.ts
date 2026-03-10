@@ -4,22 +4,29 @@ function getCookie(res: Response) {
   return res.headers.get("set-cookie");
 }
 
-Deno.test("GET /invites/new rejects unauthenticated access", async () => {
+Deno.test("GET /invites/new redirects unauthenticated access to /login", async () => {
   const { app } = await createTestApp();
 
-  const res = await app.request("/invites/new");
-  if (res.status !== 401) throw new Error(`expected 401, got ${res.status}`);
+  const res = await app.request("/invites/new", { redirect: "manual" });
+  if (res.status !== 302) throw new Error(`expected 302, got ${res.status}`);
+  if (res.headers.get("location") !== "/login") {
+    throw new Error(`expected redirect to /login, got ${res.headers.get("location")}`);
+  }
 });
 
-Deno.test("POST /invites rejects unauthenticated access", async () => {
+Deno.test("POST /invites redirects unauthenticated access to /login", async () => {
   const { app } = await createTestApp();
 
   const res = await app.request("/invites", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ type: "user", label: "bob-user" }),
+    redirect: "manual",
   });
-  if (res.status !== 401) throw new Error(`expected 401, got ${res.status}`);
+  if (res.status !== 302) throw new Error(`expected 302, got ${res.status}`);
+  if (res.headers.get("location") !== "/login") {
+    throw new Error(`expected redirect to /login, got ${res.headers.get("location")}`);
+  }
 });
 
 Deno.test("authenticated user can create an invite and inviter comes from session", async () => {

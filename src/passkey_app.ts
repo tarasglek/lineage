@@ -84,6 +84,10 @@ function authCookieValue(token: string) {
   return `auth=${token}; HttpOnly; Path=/; SameSite=Lax`;
 }
 
+function clearedAuthCookieValue() {
+  return "auth=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0";
+}
+
 async function getAuthenticatedUser(c: Context, state: TestState) {
   const cookies = parseCookieHeader(c.req.header("cookie") ?? null);
   const token = cookies.get("auth");
@@ -116,6 +120,33 @@ export function createPasskeyApp(state: TestState) {
     const token = await signAuthSessionToken({ userId: user.id, username: user.username });
     c.header("set-cookie", authCookieValue(token));
     return c.json({ userId: user.id, username: user.username });
+  });
+
+  app.get("/login", (c) => {
+    return c.html(`<!doctype html><html><body>
+      <form method="post" action="/login">
+        <input name="username">
+        <button type="submit">Login</button>
+      </form>
+    </body></html>`);
+  });
+
+  app.post("/login", async (c) => {
+    const form = await c.req.formData();
+    const username = String(form.get("username") ?? "");
+    return c.redirect(`/login/passkey?username=${encodeURIComponent(username)}`, 303);
+  });
+
+  app.get("/login/passkey", (c) => {
+    const username = c.req.query("username") ?? "";
+    return c.html(`<!doctype html><html><body>
+      <div data-username="${username}">passkey-login</div>
+    </body></html>`);
+  });
+
+  app.post("/logout", (c) => {
+    c.header("set-cookie", clearedAuthCookieValue());
+    return c.redirect("/login", 303);
   });
 
   app.get("/register", (c) => {
