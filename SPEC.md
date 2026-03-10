@@ -6,7 +6,22 @@ Users authenticate with passkeys, not passwords. New accounts are created throug
 
 The system can also act as a standard OAuth provider so that other private apps can delegate authentication to it.
 
-- a network that works like lobste.rs to setup a private identity system disconnected from major identity providers like google, etc
+## Goals
+- be a self-hosted login and identity provider for private communities
+- use passkeys instead of passwords
+- grow through user invites, forming a chain of trust between members in a way similar to lobste.rs
+- protect private apps through standard OAuth/OIDC
+- keep key handling zero-trust / signal-like, so the server stores encrypted key material but does not have access to plaintext private keys or user data
+- support future app-level encryption tied to the same user identities
+
+## Non-goals
+- open self-service registration
+- password-based or email-based authentication
+- reliance on major external identity providers
+- server visibility into plaintext private keys or protected app data
+- becoming a general-purpose application platform rather than an identity layer
+
+- a self-hosted identity system for private communities that uses a lobste.rs-like invite and trust model instead of public signup or major external identity providers
 - each user has:
     * a unique username
     * optional email which we dont check via confirmation and dont expose anywhere yet
