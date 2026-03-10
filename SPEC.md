@@ -13,7 +13,9 @@ The system can also act as a standard OAuth provider so that other private apps 
     * uuid
     * uuid invited-by of user who invited them
     * set of passkey identities that can be used to login
-    * a set (>=1) of age private keys encrypted with ^ identities per https://words.filippo.io/passkey-encryption/, eg we use age multi-recipient encryption, every time we add a passkey, we re-encrypt private keys
+    * a set (>=1) of age private keys encrypted to the user's passkey identities per https://words.filippo.io/passkey-encryption/; we use age multi-recipient encryption, and every time we add a passkey, we re-encrypt the private keys
+    * this is meant to be zero-trust / signal-like: the server stores encrypted key material and should have no access to users' plaintext private keys or application data
+    * in the future, apps using this OIDC provider can rely on these identities for encryption as well as login, without giving the identity provider access to user data
 - uuid of 0 represents the system
     * at first start if no users in system or invites an invite for a user is generated and logged
     * pub/private age key comes from env vars
