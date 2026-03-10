@@ -23,6 +23,9 @@ The system can also act as a standard OAuth provider so that other private apps 
 
 ## Core model
 - a self-hosted identity system for private communities that uses a lobste.rs-like invite and trust model instead of public signup or major external identity providers
+- invite relationships are preserved as a long-lived trust graph
+- this makes it possible to trace how access entered the network and to prune abusive branches when necessary
+- self-invites are allowed, so users can intentionally create additional descendants under their own identity
 - each user has:
   - a unique username
   - optional email which we dont check via confirmation and dont expose anywhere yet
@@ -50,6 +53,8 @@ The system can also act as a standard OAuth provider so that other private apps 
 ## OAuth
 - We will exposed minimal outh integration ala https://lastlogin.net/developers/
 - eg endpoints, .well-known, no pre-registration
+- relying apps may use invite ancestry as an authorization primitive
+- for example, an app may grant access to all identities in the subtree rooted at a given uuid
 
 ## Future
 - these managed age keys are intended to support future app-facing encryption features
