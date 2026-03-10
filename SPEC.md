@@ -2,7 +2,9 @@
 
 A standalone, self-hosted login and identity provider for private communities.
 
-Users authenticate with passkeys instead of passwords. New accounts are created through invites, so the system preserves a chain of trust between members instead of relying on major external identity providers. The system can also act as a standard OAuth/OIDC provider for other private apps.
+Users authenticate with passkeys instead of passwords. New accounts are created through invites, so the system preserves a chain of trust between members instead of relying on major external identity providers or email. The system's primary use is like a standard OAuth/OIDC provider for other private apps.
+
+Passkeys are used because they provide phishing-resistant authentication without passwords or email-based recovery, support local biometric or PIN verification and hardware authenticators such as YubiKeys, and can also protect access to user key material across multiple devices.
 
 ## Goals
 - The system should be a self-hosted identity provider for private communities.
