@@ -549,22 +549,43 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     const body = await c.req.json().catch(() => undefined);
     if (body === undefined) return c.json({ error: "invalid_json" }, 400);
 
-    const username = body?.username;
-    if (!username) return c.json({ error: "missing_username" }, 400);
-
-    const user = storage.findUserByUsername(username);
-    if (!user) return c.json({ error: "user_not_found" }, 404);
-
+    const username = body?.username ? String(body.username) : "";
     const webauthn = getRequestWebAuthnContext(c);
-    const credentials = storage.listCredentials().filter((credential) =>
-      credential.userId === user.id
-    );
     const challenge = encodeBase64Url(crypto.randomUUID());
+
+    if (username) {
+      const user = storage.findUserByUsername(username);
+      if (!user) return c.json({ error: "user_not_found" }, 404);
+
+      const credentials = storage.listCredentials().filter((credential) =>
+        credential.userId === user.id
+      );
+      const flowToken = await signFlowToken({
+        flowType: "login",
+        challenge,
+        username,
+        userId: user.id,
+      });
+
+      return c.json({
+        challenge,
+        flowToken,
+        rpId: webauthn.rpId,
+        timeout: 60000,
+        userVerification: "preferred",
+        allowCredentials: credentials.map((credential) => ({
+          id: credential.id,
+          type: "public-key",
+          transports: credential.transports ?? ["internal"],
+        })),
+      });
+    }
+
     const flowToken = await signFlowToken({
       flowType: "login",
       challenge,
-      username,
-      userId: user.id,
+      username: "",
+      userId: "",
     });
 
     return c.json({
@@ -573,11 +594,6 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       rpId: webauthn.rpId,
       timeout: 60000,
       userVerification: "preferred",
-      allowCredentials: credentials.map((credential) => ({
-        id: credential.id,
-        type: "public-key",
-        transports: credential.transports ?? ["internal"],
-      })),
     });
   });
 
@@ -617,15 +633,6 @@ export function createPasskeyApp(storage: PasskeyStorage) {
 
     const credential = storage.getCredential(body.id);
     if (!credential) return c.json({ error: "credential_not_found" }, 404);
-    if (credential.userId !== flow.userId) {
-      return c.json({ error: "credential_not_owned_by_user" }, 403);
-    }
-    const allowedCredentialIds = storage.listCredentials().filter((candidate) =>
-      candidate.userId === flow.userId
-    ).map((candidate) => candidate.id);
-    if (!allowedCredentialIds.includes(body.id)) {
-      return c.json({ error: "credential_not_allowed" }, 403);
-    }
     if (!credential.publicKeyPem) {
       return c.json({ error: "credential_missing_public_key" }, 400);
     }
@@ -634,8 +641,11 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     if (authData.rpId !== webauthn.rpId) {
       return c.json({ error: "rp_id_mismatch" }, 400);
     }
-    if (decodeBase64Url(userHandle) !== flow.userId) {
+    if (decodeBase64Url(userHandle) !== credential.userId) {
       return c.json({ error: "user_handle_mismatch" }, 403);
+    }
+    if (flow.userId && credential.userId !== flow.userId) {
+      return c.json({ error: "credential_not_owned_by_user" }, 403);
     }
     if (authData.signCount <= credential.signCount) {
       return c.json({ error: "sign_count_rollback" }, 400);
@@ -654,18 +664,21 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     }
     if (!signatureValid) return c.json({ error: "invalid_signature" }, 400);
 
+    const user = storage.getUser(credential.userId);
+    if (!user) return c.json({ error: "user_not_found" }, 404);
+
     storage.putCredential({ ...credential, signCount: authData.signCount });
-    storage.recordSession({ userId: flow.userId, createdAt: Date.now() });
+    storage.recordSession({ userId: credential.userId, createdAt: Date.now() });
 
     const authToken = await signAuthSessionToken({
-      userId: flow.userId,
-      username: flow.username,
+      userId: user.id,
+      username: user.username,
     });
     c.header("set-cookie", authCookieValue(authToken, webauthn.isSecure));
     return c.json({
       credentialId: credential.id,
-      userId: flow.userId,
-      username: flow.username,
+      userId: user.id,
+      username: user.username,
     });
   });
 

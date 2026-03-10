@@ -2,21 +2,23 @@ import { signFlowToken } from "../../src/auth/jwt.ts";
 import { runLoginResponse } from "../helpers/passkey_helper_cli.ts";
 import { createTestApp } from "../helpers/test_app.ts";
 
-Deno.test("POST /login/begin returns assertion options for a known account", async () => {
+Deno.test("POST /login/begin returns assertion options without requiring username", async () => {
   const { app, seedUserWithPasskey } = await createTestApp();
-  const user = await seedUserWithPasskey("alice");
+  await seedUserWithPasskey("alice");
 
   const res = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: user.username }),
+    body: JSON.stringify({}),
   });
 
   if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
   const body = await res.json();
   if (!body.challenge) throw new Error("missing challenge");
   if (!body.flowToken) throw new Error("missing flowToken");
-  if (!Array.isArray(body.allowCredentials)) throw new Error("missing allowCredentials");
+  if (body.allowCredentials && !Array.isArray(body.allowCredentials)) {
+    throw new Error("allowCredentials must be an array when present");
+  }
 });
 
 Deno.test("POST /login/complete accepts a valid assertion response", async () => {
@@ -26,7 +28,7 @@ Deno.test("POST /login/complete accepts a valid assertion response", async () =>
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
   const previousSignCount = seeded.credential.signCount;
@@ -71,7 +73,7 @@ Deno.test("POST /login/complete rejects a missing flow token", async () => {
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
 
@@ -101,7 +103,7 @@ Deno.test("POST /login/complete rejects a tampered flow token", async () => {
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
 
@@ -131,7 +133,7 @@ Deno.test("POST /login/complete rejects an expired flow token", async () => {
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
   const expiredFlowToken = await signFlowToken({
@@ -167,7 +169,7 @@ Deno.test("POST /login/complete rejects a wrong flow token type", async () => {
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
   const parts = String(requestOptions.flowToken).split(".");
@@ -203,7 +205,7 @@ Deno.test("POST /login/complete rejects a wrong challenge", async () => {
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
 
@@ -237,7 +239,7 @@ Deno.test("POST /login/complete rejects an unknown credential id", async () => {
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
 
@@ -264,24 +266,24 @@ Deno.test("POST /login/complete rejects an unknown credential id", async () => {
   }
 });
 
-Deno.test("POST /login/complete rejects a credential not owned by the user", async () => {
+Deno.test("POST /login/complete rejects a mismatched user handle", async () => {
   const { app, seedUserWithPasskey } = await createTestApp();
-  const alice = await seedUserWithPasskey("alice");
-  const bob = await seedUserWithPasskey("bob");
+  const seeded = await seedUserWithPasskey("alice");
 
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: alice.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
 
   const generated = await runLoginResponse({
     origin: "http://localhost",
     requestOptions,
-    credential: bob.credential,
+    credential: seeded.credential,
   });
   const assertion = generated.assertionResponse;
+  assertion.response.userHandle = "d3JvbmctdXNlci1pZA";
 
   const res = await app.request("/login/complete", {
     method: "POST",
@@ -291,8 +293,8 @@ Deno.test("POST /login/complete rejects a credential not owned by the user", asy
 
   if (res.status !== 403) throw new Error(`expected 403, got ${res.status}`);
   const body = await res.json();
-  if (body.error !== "credential_not_owned_by_user") {
-    throw new Error(`expected credential_not_owned_by_user, got ${body.error}`);
+  if (body.error !== "user_handle_mismatch") {
+    throw new Error(`expected user_handle_mismatch, got ${body.error}`);
   }
 });
 
@@ -306,7 +308,7 @@ Deno.test("POST /login/complete rejects a counter rollback", async () => {
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
 
@@ -340,7 +342,7 @@ Deno.test("POST /login/complete rejects an origin mismatch", async () => {
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
 
@@ -374,7 +376,7 @@ Deno.test("POST /login/complete rejects a tampered signature", async () => {
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
 
@@ -406,7 +408,7 @@ Deno.test("POST /login/complete rejects a replayed assertion", async () => {
   const beginRes = await app.request("/login/begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ username: seeded.username }),
+    body: JSON.stringify({}),
   });
   const requestOptions = await beginRes.json();
 
