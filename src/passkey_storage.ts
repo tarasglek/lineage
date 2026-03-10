@@ -49,6 +49,8 @@ export interface PasskeyStorage {
   listCredentials(): Credential[];
 
   recordSession(session: SessionRecord): void;
+  listSessions(): SessionRecord[];
+  close(): void;
 }
 
 export function createInMemoryPasskeyStorage(state: TestState): PasskeyStorage {
@@ -85,6 +87,12 @@ export function createInMemoryPasskeyStorage(state: TestState): PasskeyStorage {
     },
     recordSession(session) {
       state.sessions.push(session);
+    },
+    listSessions() {
+      return [...state.sessions];
+    },
+    close() {
+      // no-op
     },
   };
 }
