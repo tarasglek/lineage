@@ -100,7 +100,7 @@ async function getAuthenticatedUser(c: Context, state: TestState) {
 }
 
 function authErrorResponse(c: Context) {
-  return c.html("<!doctype html><html><body>unauthorized</body></html>", 401);
+  return c.redirect("/login", 302);
 }
 
 export function createPasskeyApp(state: TestState) {

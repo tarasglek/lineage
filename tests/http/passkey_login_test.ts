@@ -1,3 +1,4 @@
+import { signFlowToken } from "../../src/auth/jwt.ts";
 import { runLoginResponse } from "../helpers/passkey_helper_cli.ts";
 import { createTestApp } from "../helpers/test_app.ts";
 
@@ -114,6 +115,78 @@ Deno.test("POST /login/complete rejects a tampered flow token", async () => {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...generated.assertionResponse, flowToken: "bad-flow-token" }),
+  });
+
+  if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
+  const body = await res.json();
+  if (body.error !== "invalid_flow_token") {
+    throw new Error(`expected invalid_flow_token, got ${body.error}`);
+  }
+});
+
+Deno.test("POST /login/complete rejects an expired flow token", async () => {
+  const { app, seedUserWithPasskey } = await createTestApp();
+  const seeded = await seedUserWithPasskey("alice");
+
+  const beginRes = await app.request("/login/begin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: seeded.username }),
+  });
+  const requestOptions = await beginRes.json();
+  const expiredFlowToken = await signFlowToken({
+    flowType: "login",
+    challenge: requestOptions.challenge,
+    username: seeded.username,
+    userId: seeded.userId,
+  }, { expiresInSeconds: -10 });
+
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions,
+    credential: seeded.credential,
+  });
+
+  const res = await app.request("/login/complete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...generated.assertionResponse, flowToken: expiredFlowToken }),
+  });
+
+  if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
+  const body = await res.json();
+  if (body.error !== "flow_token_expired") {
+    throw new Error(`expected flow_token_expired, got ${body.error}`);
+  }
+});
+
+Deno.test("POST /login/complete rejects a wrong flow token type", async () => {
+  const { app, seedUserWithPasskey } = await createTestApp();
+  const seeded = await seedUserWithPasskey("alice");
+
+  const beginRes = await app.request("/login/begin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: seeded.username }),
+  });
+  const requestOptions = await beginRes.json();
+  const parts = String(requestOptions.flowToken).split(".");
+  if (parts.length !== 3) throw new Error("expected jwt");
+  const payloadJson = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/") + "===".slice((parts[1].length + 3) % 4)));
+  payloadJson.type = "register-flow";
+  const wrongTypePayload = btoa(JSON.stringify(payloadJson)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const wrongTypeToken = `${parts[0]}.${wrongTypePayload}.${parts[2]}`;
+
+  const generated = await runLoginResponse({
+    origin: "http://localhost",
+    requestOptions,
+    credential: seeded.credential,
+  });
+
+  const res = await app.request("/login/complete", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...generated.assertionResponse, flowToken: wrongTypeToken }),
   });
 
   if (res.status !== 400) throw new Error(`expected 400, got ${res.status}`);
