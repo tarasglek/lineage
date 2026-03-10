@@ -1,5 +1,6 @@
 import { runRegisterResponse } from "./passkey_helper_cli.ts";
-import { createPasskeyApp, type TestState } from "../../src/passkey_app.ts";
+import { createPasskeyApp } from "../../src/passkey_app.ts";
+import { createInMemoryPasskeyStorage, type TestState } from "../../src/passkey_storage.ts";
 import { createTestDb } from "./test_db.ts";
 
 export async function createTestApp() {
@@ -18,7 +19,7 @@ export async function createTestApp() {
     invitedBy: null,
   });
 
-  const app = createPasskeyApp(state);
+  const app = createPasskeyApp(createInMemoryPasskeyStorage(state));
   const bootstrapInviteToken = crypto.randomUUID();
   state.invites.set(bootstrapInviteToken, {
     token: bootstrapInviteToken,

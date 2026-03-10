@@ -8,6 +8,7 @@ import {
   verifyAuthSessionToken,
   verifyFlowToken,
 } from "./auth/jwt.ts";
+import type { PasskeyStorage } from "./passkey_storage.ts";
 
 function verifyAssertionSignature(input: {
   publicKeyPem: string;
@@ -25,39 +26,6 @@ function verifyAssertionSignature(input: {
   return verifySignature("sha256", signedBytes, publicKey, signatureBytes);
 }
 
-type Invite = {
-  token: string;
-  type: "user" | "device";
-  inviterUserId: string | null;
-  targetUserId?: string;
-  label?: string;
-  expiresAt: number;
-  usedAt: number | null;
-};
-
-type User = {
-  id: string;
-  username: string;
-  invitedBy?: string | null;
-};
-
-type Credential = {
-  id: string;
-  publicKey: string;
-  publicKeyPem?: string;
-  algorithm: number;
-  signCount: number;
-  userId: string;
-  transports?: string[];
-};
-
-export type TestState = {
-  providerRootUserId?: string;
-  invites: Map<string, Invite>;
-  users: Map<string, User>;
-  credentials: Map<string, Credential>;
-  sessions: Array<{ userId: string; createdAt: number }>;
-};
 
 function encodeBase64Url(value: string) {
   return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -88,14 +56,14 @@ function clearedAuthCookieValue() {
   return "auth=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0";
 }
 
-async function getAuthenticatedUser(c: Context, state: TestState) {
+async function getAuthenticatedUser(c: Context, storage: PasskeyStorage) {
   const cookies = parseCookieHeader(c.req.header("cookie") ?? null);
   const token = cookies.get("auth");
   if (!token) return null;
 
   try {
     const payload = await verifyAuthSessionToken(token);
-    const user = state.users.get(payload.userId);
+    const user = storage.getUser(payload.userId);
     if (!user) return null;
     return user;
   } catch {
@@ -107,14 +75,14 @@ function authErrorResponse(c: Context) {
   return c.redirect("/login", 302);
 }
 
-export function createPasskeyApp(state: TestState) {
+export function createPasskeyApp(storage: PasskeyStorage) {
   const app = new Hono();
 
   app.post("/test/login", async (c) => {
     const body = await c.req.json().catch(() => undefined);
     const userId = body?.userId;
     if (!userId) return c.json({ error: "missing_user_id" }, 400);
-    const user = state.users.get(userId);
+    const user = storage.getUser(userId);
     if (!user) return c.json({ error: "user_not_found" }, 404);
 
     const token = await signAuthSessionToken({ userId: user.id, username: user.username });
@@ -176,7 +144,7 @@ export function createPasskeyApp(state: TestState) {
   });
 
   app.get("/invites/new", async (c) => {
-    const currentUser = await getAuthenticatedUser(c, state);
+    const currentUser = await getAuthenticatedUser(c, storage);
     if (!currentUser) return authErrorResponse(c);
 
     const type = c.req.query("type") ?? "user";
@@ -192,7 +160,7 @@ export function createPasskeyApp(state: TestState) {
   });
 
   app.post("/invites", async (c) => {
-    const currentUser = await getAuthenticatedUser(c, state);
+    const currentUser = await getAuthenticatedUser(c, storage);
     if (!currentUser) return authErrorResponse(c);
 
     const form = await c.req.formData();
@@ -205,7 +173,7 @@ export function createPasskeyApp(state: TestState) {
       return c.html("<!doctype html><html><body>forbidden</body></html>", 403);
     }
 
-    state.invites.set(token, {
+    storage.putInvite({
       token,
       type,
       inviterUserId: currentUser.id,
@@ -220,12 +188,12 @@ export function createPasskeyApp(state: TestState) {
   });
 
   app.get("/account", async (c) => {
-    const currentUser = await getAuthenticatedUser(c, state);
+    const currentUser = await getAuthenticatedUser(c, storage);
     if (!currentUser) return authErrorResponse(c);
 
     const invitedBy = currentUser.invitedBy ?? "";
-    const invites = Array.from(state.invites.values()).filter((invite) => invite.inviterUserId === currentUser.id);
-    const credentials = Array.from(state.credentials.values()).filter((credential) => credential.userId === currentUser.id);
+    const invites = storage.listInvites().filter((invite) => invite.inviterUserId === currentUser.id);
+    const credentials = storage.listCredentials().filter((credential) => credential.userId === currentUser.id);
 
     return c.html(`<!doctype html><html><body>
       <div data-username="${currentUser.username}" data-user-id="${currentUser.id}" data-invited-by="${invitedBy}">account</div>
@@ -248,7 +216,7 @@ export function createPasskeyApp(state: TestState) {
     if (!inviteToken) return c.json({ error: "missing_invite_token" }, 400);
     if (!username) return c.json({ error: "missing_username" }, 400);
 
-    const invite = state.invites.get(inviteToken);
+    const invite = storage.getInvite(inviteToken);
     if (!invite) return c.json({ error: "invite_not_found" }, 404);
     if (invite.usedAt) return c.json({ error: "invite_already_used" }, 409);
     if (invite.expiresAt <= Date.now()) return c.json({ error: "invite_expired" }, 410);
@@ -260,7 +228,7 @@ export function createPasskeyApp(state: TestState) {
     if (!userId) return c.json({ error: "invite_missing_target_user" }, 400);
 
     const effectiveUsername = invite.type === "device"
-      ? state.users.get(userId)?.username ?? username
+      ? storage.getUser(userId)?.username ?? username
       : username;
     const flowToken = await signFlowToken({
       flowType: "register",
@@ -309,21 +277,21 @@ export function createPasskeyApp(state: TestState) {
     if (clientData.origin !== "http://localhost") return c.json({ error: "origin_mismatch" }, 400);
     if (attestation?.authData?.rpId !== "localhost") return c.json({ error: "rp_id_mismatch" }, 400);
 
-    const invite = flow.inviteToken ? state.invites.get(flow.inviteToken) : undefined;
+    const invite = flow.inviteToken ? storage.getInvite(flow.inviteToken) : undefined;
     if (!invite || invite.usedAt) return c.json({ error: "invite_already_used" }, 409);
 
     if (invite.type === "user") {
-      state.users.set(flow.userId, {
+      storage.putUser({
         id: flow.userId,
         username: flow.username,
         invitedBy: invite.inviterUserId,
       });
     } else {
-      const existingUser = state.users.get(flow.userId);
+      const existingUser = storage.getUser(flow.userId);
       if (!existingUser) return c.json({ error: "device_invite_user_not_found" }, 404);
     }
 
-    state.credentials.set(body.id, {
+    storage.putCredential({
       id: body.id,
       publicKey: attestation.authData.publicKey,
       publicKeyPem: attestation.authData.publicKeyPem,
@@ -346,10 +314,10 @@ export function createPasskeyApp(state: TestState) {
     const username = body?.username;
     if (!username) return c.json({ error: "missing_username" }, 400);
 
-    const user = Array.from(state.users.values()).find((candidate) => candidate.username === username);
+    const user = storage.findUserByUsername(username);
     if (!user) return c.json({ error: "user_not_found" }, 404);
 
-    const credentials = Array.from(state.credentials.values()).filter((credential) => credential.userId === user.id);
+    const credentials = storage.listCredentials().filter((credential) => credential.userId === user.id);
     const challenge = encodeBase64Url(crypto.randomUUID());
     const flowToken = await signFlowToken({
       flowType: "login",
@@ -399,12 +367,12 @@ export function createPasskeyApp(state: TestState) {
     if (clientData?.challenge !== flow.challenge) return c.json({ error: "authentication_session_not_found" }, 400);
     if (clientData.origin !== "http://localhost") return c.json({ error: "origin_mismatch" }, 400);
 
-    const credential = state.credentials.get(body.id);
+    const credential = storage.getCredential(body.id);
     if (!credential) return c.json({ error: "credential_not_found" }, 404);
     if (credential.userId !== flow.userId) {
       return c.json({ error: "credential_not_owned_by_user" }, 403);
     }
-    const allowedCredentialIds = Array.from(state.credentials.values())
+    const allowedCredentialIds = storage.listCredentials()
       .filter((candidate) => candidate.userId === flow.userId)
       .map((candidate) => candidate.id);
     if (!allowedCredentialIds.includes(body.id)) {
@@ -438,7 +406,7 @@ export function createPasskeyApp(state: TestState) {
     }
 
     credential.signCount = authData.signCount;
-    state.sessions.push({ userId: flow.userId, createdAt: Date.now() });
+    storage.recordSession({ userId: flow.userId, createdAt: Date.now() });
 
     const authToken = await signAuthSessionToken({ userId: flow.userId, username: flow.username });
     c.header("set-cookie", authCookieValue(authToken));
