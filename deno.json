@@ -1,7 +1,7 @@
 {
   "nodeModulesDir": "auto",
   "tasks": {
-    "bootstrap-invite": "deno run -A scripts/print_bootstrap_invite.ts"
+    "bootstrap-db": "deno run -A scripts/bootstrap_db.ts"
   },
   "imports": {
     "@hono/hono": "npm:hono@^4.0.1",
