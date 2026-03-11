@@ -73,14 +73,23 @@ Deno.test("POST /logout clears auth cookie", async () => {
 Deno.test("protected SSR pages redirect to /login", async () => {
   const { app } = await createTestApp();
 
-  for (const path of ["/account", "/invites/new"] as const) {
-    const res = await app.request(path, { redirect: "manual" });
+  const cases = [
+    { path: "/account", method: "GET" },
+    { path: "/invites/user", method: "POST" },
+    { path: "/enroll/passkey", method: "POST" },
+  ] as const;
+
+  for (const testCase of cases) {
+    const res = await app.request(testCase.path, {
+      method: testCase.method,
+      redirect: "manual",
+    });
     if (res.status !== 302) {
-      throw new Error(`expected 302 for ${path}, got ${res.status}`);
+      throw new Error(`expected 302 for ${testCase.path}, got ${res.status}`);
     }
     if (res.headers.get("location") !== "/login") {
       throw new Error(
-        `expected redirect to /login for ${path}, got ${
+        `expected redirect to /login for ${testCase.path}, got ${
           res.headers.get("location")
         }`,
       );

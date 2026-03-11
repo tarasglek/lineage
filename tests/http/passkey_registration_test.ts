@@ -51,9 +51,9 @@ Deno.test("GET /register/passkey redirects back to one-step register page", asyn
   }
 });
 
-Deno.test("POST /register/begin returns WebAuthn creation options for a valid invite", async () => {
+Deno.test("POST /register/begin returns WebAuthn creation options for a valid user invite", async () => {
   const { app, seedInvite } = await createTestApp();
-  const inviteToken = await seedInvite();
+  const inviteToken = await seedInvite({ type: "user" });
 
   const res = await app.request("/register/begin", {
     method: "POST",
@@ -67,6 +67,28 @@ Deno.test("POST /register/begin returns WebAuthn creation options for a valid in
   if (!body.challenge) throw new Error("missing challenge");
   if (!body.user) throw new Error("missing user");
   if (!body.flowToken) throw new Error("missing flowToken");
+});
+
+Deno.test("POST /register/begin rejects a device enrollment token", async () => {
+  const { app, seedUserWithPasskey, seedInvite } = await createTestApp();
+  const alice = await seedUserWithPasskey("alice");
+  const inviteToken = await seedInvite({
+    type: "device",
+    inviterUserId: alice.userId,
+    targetUserId: alice.userId,
+  });
+
+  const res = await app.request("/register/begin", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ inviteToken, username: "alice" }),
+  });
+
+  if (res.status !== 409) throw new Error(`expected 409, got ${res.status}`);
+  const body = await res.json();
+  if (body.error !== "wrong_invite_type") {
+    throw new Error(`expected wrong_invite_type, got ${body.error}`);
+  }
 });
 
 Deno.test("POST /register/begin rejects a missing invite", async () => {
@@ -451,18 +473,16 @@ Deno.test("POST /register/complete rejects an RP ID mismatch", async () => {
     creationOptions,
   });
   const attestation = generated.attestationResponse;
-  const attestationObjectJson = JSON.parse(
-    atob(
-      attestation.response.attestationObject.replace(/-/g, "+").replace(
-        /_/g,
-        "/",
-      ) + "===".slice((attestation.response.attestationObject.length + 3) % 4),
-    ),
-  );
-  attestationObjectJson.authData.rpId = "evil.example";
-  attestation.response.attestationObject = btoa(
-    JSON.stringify(attestationObjectJson),
-  ).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  const normalized = attestation.response.authenticatorData.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "===".slice((normalized.length + 3) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  bytes[0] ^= 0xff;
+  let tamperedBinary = "";
+  for (const byte of bytes) tamperedBinary += String.fromCharCode(byte);
+  attestation.response.authenticatorData = btoa(tamperedBinary)
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 
   const res = await app.request("/register/complete", {
     method: "POST",

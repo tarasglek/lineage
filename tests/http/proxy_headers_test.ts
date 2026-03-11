@@ -9,6 +9,17 @@ Deno.test("register and login use forwarded host/proto for WebAuthn and secure c
     "x-forwarded-host": "passkeys.example.test",
   };
 
+  const staticRes = await t.app.request("/static/style.css");
+  if (staticRes.headers.get("cache-control") !== "no-store, max-age=0") {
+    throw new Error(`unexpected static cache-control: ${staticRes.headers.get("cache-control")}`);
+  }
+  if (staticRes.headers.get("pragma") !== "no-cache") {
+    throw new Error(`unexpected static pragma: ${staticRes.headers.get("pragma")}`);
+  }
+  if (staticRes.headers.get("expires") !== "0") {
+    throw new Error(`unexpected static expires: ${staticRes.headers.get("expires")}`);
+  }
+
   const inviteToken = await t.seedInvite();
   const beginRegisterRes = await t.app.request("/register/begin", {
     method: "POST",

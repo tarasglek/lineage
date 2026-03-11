@@ -6,6 +6,7 @@
   "imports": {
     "@hono/hono": "npm:hono@^4.0.1",
     "@passwordless-id/webauthn": "npm:@passwordless-id/webauthn@^2.3.5",
-    "jose": "npm:jose@^6.1.0"
+    "jose": "npm:jose@^6.1.0",
+    "qrcode-svg": "npm:qrcode-svg@^1.1.0"
   }
 }

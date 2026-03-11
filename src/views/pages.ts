@@ -113,76 +113,52 @@ export function registerPage(inviteToken: string, username = "") {
   );
 }
 
-export function invitesNewPage(type: string, targetUserId: string) {
-  const title = type === "device"
-    ? "Create device invite"
-    : "Create user invite";
+export function publicInvitePage(inviteToken: string, inviteUrl: string) {
   return page(
-    title,
+    "Invite",
     `
     ${nav(null)}
     ${
       sectionCard(`
-      <h1>${escapeHtml(title)}</h1>
-      <p>${
-        type === "device"
-          ? "Create an invite that adds another passkey to your current account."
-          : "Create an invite for a new user joining through your trust chain."
-      }</p>
-      <form method="post" action="/invites">
-        <input type="hidden" name="type" value="${escapeHtml(type)}">
-        <input type="hidden" name="targetUserId" value="${
-        escapeHtml(targetUserId)
-      }">
-        <input name="label" placeholder="label" required>
-        <button type="submit">Create invite</button>
-      </form>
-      <div class="inline-actions">
-        <a href="/account">Back to account</a>
-      </div>
+      <section data-invite-token="${escapeHtml(inviteToken)}">
+        <h1>You've been invited</h1>
+        <p>Use this invite to create an account.</p>
+        <p><a href="${escapeHtml(inviteUrl)}">${escapeHtml(inviteUrl)}</a></p>
+        <div class="actions">
+          <a href="/register?inviteToken=${encodeURIComponent(inviteToken)}">Create account</a>
+        </div>
+      </section>
     `)
     }
   `,
   );
 }
 
-export function inviteCreatedPage(
-  input: {
-    type: string;
-    token: string;
-    currentUserId: string;
-    inviteUrl: string;
-  },
-) {
-  const heading = input.type === "user"
-    ? "User invitation ready"
-    : "Passkey enrollment link ready";
+export function enrollPasskeyPage(input: {
+  token: string;
+  inviteUrl: string;
+  qrSvg: string;
+}) {
   return page(
-    "Invite created",
+    "Enroll passkey",
     `
     ${nav(null)}
     ${
       sectionCard(`
-      <h1>${escapeHtml(heading)}</h1>
-      <p>${
-        input.type === "user"
-          ? "Share this link so someone can accept the invitation and create an account."
-          : "Open this link on the device where you want to add another passkey."
-      }</p>
-      <p><a href="${escapeHtml(input.inviteUrl)}">${
-        escapeHtml(input.inviteUrl)
-      }</a></p>
-      <pre>${escapeHtml(input.token)}</pre>
-      <div data-token="${escapeHtml(input.token)}" data-type="${
-        escapeHtml(input.type)
-      }" data-inviter-user-id="${
-        escapeHtml(input.currentUserId)
-      }" data-target-user-id="${
-        escapeHtml(input.type === "device" ? input.currentUserId : "")
-      }"></div>
-      <div class="inline-actions">
-        <a href="/account">Back to account</a>
-      </div>
+      <section data-passkey-flow="enroll" data-invite-token="${escapeHtml(input.token)}">
+        <h1>Enroll passkey</h1>
+        <p>Add a passkey to your existing account.</p>
+        <p><a href="${escapeHtml(input.inviteUrl)}">${escapeHtml(input.inviteUrl)}</a></p>
+        <pre>${escapeHtml(input.token)}</pre>
+        <div class="qr-code">${input.qrSvg}</div>
+        <div class="actions">
+          <button id="passkey-action" type="button">Enroll passkey</button>
+          <a href="/account">Back to account</a>
+        </div>
+        <div id="status">Ready.</div>
+      </section>
+      <script src="${assetUrl("/static/passkey-shared.js")}"></script>
+      <script src="${assetUrl("/static/passkey-enroll.js")}"></script>
     `)
     }
   `,
@@ -195,6 +171,7 @@ export function accountPage(
     userId: string;
     invitedBy: string;
     credentials: string[];
+    deviceInvites: Array<{ token: string; inviteUrl: string }>;
     invites: Array<{ token: string; type: string; label?: string | null }>;
   },
 ) {
@@ -225,10 +202,11 @@ export function accountPage(
       sectionCard(`
       <h2>Passkeys</h2>
       <div class="inline-actions">
-        <a href="/invites/new?type=device&targetUserId=${
-        encodeURIComponent(input.userId)
-      }">Add another passkey</a>
+        <form method="post" action="/enroll/passkey">
+          <button type="submit">Enroll another passkey</button>
+        </form>
       </div>
+      <h3>Enrolled passkeys</h3>
       <ul class="list">
         ${
         input.credentials.map((id) =>
@@ -236,13 +214,23 @@ export function accountPage(
         ).join("") || "<li>No passkeys found.</li>"
       }
       </ul>
+      <h3>Pending enrollments</h3>
+      <ul class="list">
+        ${
+        input.deviceInvites.map((invite) =>
+          `<li data-device-invite-token="${escapeHtml(invite.token)}" data-invite-token="${escapeHtml(invite.token)}"><a href="${escapeHtml(invite.inviteUrl)}">${escapeHtml(invite.inviteUrl)}</a></li>`
+        ).join("") || "<li>No pending passkey invites.</li>"
+      }
+      </ul>
     `)
     }
     ${
       sectionCard(`
-      <h2>Invite user</h2>
+      <h2>Invite users</h2>
       <div class="inline-actions">
-        <a href="/invites/new?type=user">Invite user</a>
+        <form method="post" action="/invites/user">
+          <button type="submit">Invite user</button>
+        </form>
       </div>
       <ul class="list">
         ${

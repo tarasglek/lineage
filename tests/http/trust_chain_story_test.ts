@@ -6,10 +6,10 @@ import { createTestApp } from "../helpers/test_app.ts";
 
 // Story:
 // - provider root bootstraps Alice with a user invite
-// - Alice adds two more devices and invites Bob
-// - Bob registers, adds three more devices, and all devices log in
+// - Alice enrolls two more passkeys and invites Bob
+// - Bob registers, enrolls three more passkeys, and all devices log in
 // - the test proves SSR invite pages use real auth cookies, WebAuthn uses JSON begin/complete,
-//   device invites attach to the existing user, and inviter ancestry is stored correctly
+//   enrollment tokens attach to the existing user, and inviter ancestry is stored correctly
 Deno.test("SSR trust chain story covers two invited users and many devices", async () => {
   const t = await createTestApp();
   type StoryCredential = {
@@ -54,11 +54,14 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     username: string;
     origin?: string;
   }): Promise<StoryRegistration> {
-    const pageRes = await t.app.request(
-      `/register?inviteToken=${
-        encodeURIComponent(input.inviteToken)
-      }&username=${encodeURIComponent(input.username)}`,
-    );
+    const invite = t.getInvite(input.inviteToken);
+    if (!invite) throw new Error("missing invite state");
+
+    const isEnroll = invite.type === "device";
+    const pagePath = isEnroll
+      ? `/enroll/passkey/${encodeURIComponent(input.inviteToken)}`
+      : `/register?inviteToken=${encodeURIComponent(input.inviteToken)}&username=${encodeURIComponent(input.username)}`;
+    const pageRes = await t.app.request(pagePath);
     if (pageRes.status !== 200) {
       throw new Error(`expected register page 200, got ${pageRes.status}`);
     }
@@ -66,21 +69,27 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     if (!pageHtml.includes(`data-invite-token="${input.inviteToken}"`)) {
       throw new Error("missing invite token");
     }
-    if (!pageHtml.includes(`data-username="${input.username}"`)) {
-      throw new Error("missing username");
-    }
-    if (!pageHtml.includes('id="username"')) {
-      throw new Error("missing username input");
+    if (!isEnroll) {
+      if (!pageHtml.includes(`data-username="${input.username}"`)) {
+        throw new Error("missing username");
+      }
+      if (!pageHtml.includes('id="username"')) {
+        throw new Error("missing username input");
+      }
     }
 
-    const beginRes = await t.app.request("/register/begin", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        inviteToken: input.inviteToken,
-        username: input.username,
-      }),
-    });
+    const beginRes = await t.app.request(
+      isEnroll ? "/enroll/passkey/begin" : "/register/begin",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          isEnroll
+            ? { inviteToken: input.inviteToken }
+            : { inviteToken: input.inviteToken, username: input.username },
+        ),
+      },
+    );
     if (beginRes.status !== 200) {
       throw new Error(`expected begin 200, got ${beginRes.status}`);
     }
@@ -89,14 +98,17 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
       origin: input.origin ?? "http://localhost",
       creationOptions,
     });
-    const completeRes = await t.app.request("/register/complete", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ...generated.attestationResponse,
-        flowToken: creationOptions.flowToken,
-      }),
-    });
+    const completeRes = await t.app.request(
+      isEnroll ? "/enroll/passkey/complete" : "/register/complete",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...generated.attestationResponse,
+          flowToken: creationOptions.flowToken,
+        }),
+      },
+    );
     if (completeRes.status !== 200) {
       throw new Error(`expected complete 200, got ${completeRes.status}`);
     }
@@ -129,43 +141,23 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     label: string;
     targetUserId?: string;
   }): Promise<StoryInvite> {
-    const query = new URLSearchParams({
-      type: input.type,
-      ...(input.targetUserId ? { targetUserId: input.targetUserId } : {}),
-    });
-    const pageRes = await t.app.request(`/invites/new?${query.toString()}`, {
-      headers: { cookie: input.authCookie },
-    });
-    if (pageRes.status !== 200) {
-      throw new Error(`expected invite page 200, got ${pageRes.status}`);
-    }
-    const pageHtml = await pageRes.text();
-    if (!pageHtml.includes('<form method="post" action="/invites">')) {
-      throw new Error("missing invite form");
-    }
-
-    const formRes = await t.app.request("/invites", {
+    const path = input.type === "user" ? "/invites/user" : "/enroll/passkey";
+    const formRes = await t.app.request(path, {
       method: "POST",
       headers: {
-        "content-type": "application/x-www-form-urlencoded",
         cookie: input.authCookie,
       },
-      body: new URLSearchParams({
-        inviterUserId: input.inviterUserId,
-        type: input.type,
-        label: input.label,
-        targetUserId: input.targetUserId ?? "",
-      }),
+      redirect: "manual",
     });
-    if (formRes.status !== 200) {
-      throw new Error(`expected invite create 200, got ${formRes.status}`);
+    if (formRes.status !== 303) {
+      throw new Error(`expected invite create 303, got ${formRes.status}`);
     }
-    const html = await formRes.text();
-    const tokenMatch = html.match(/data-token="([^"]+)"/);
-    if (!tokenMatch) throw new Error("missing invite token in response");
+    const location = formRes.headers.get("location");
+    const token = location?.split("/").at(-1);
+    if (!token) throw new Error("missing invite token in response");
 
     return {
-      token: tokenMatch[1],
+      token,
       type: input.type,
       inviterUserId: input.inviterUserId,
       targetUserId: input.targetUserId,
@@ -310,14 +302,14 @@ Deno.test("SSR trust chain story covers two invited users and many devices", asy
     ) {
       const invite = t.getInvite(deviceInvite.token);
       if (!invite) {
-        throw new Error(`missing device invite ${deviceInvite.token}`);
+        throw new Error(`missing enrollment token ${deviceInvite.token}`);
       }
       if (invite.type !== "device") {
-        throw new Error(`expected device invite for ${deviceInvite.token}`);
+        throw new Error(`expected enrollment token for ${deviceInvite.token}`);
       }
       if (invite.usedAt === null) {
         throw new Error(
-          `device invite ${deviceInvite.token} should be consumed`,
+          `enrollment token ${deviceInvite.token} should be consumed`,
         );
       }
     }

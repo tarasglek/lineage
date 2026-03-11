@@ -6,6 +6,16 @@ Deno.test("GET / renders minimal signed-out identity home", async () => {
   const res = await app.request("/");
   if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`);
 
+  if (res.headers.get("cache-control") !== "no-store, max-age=0") {
+    throw new Error(`unexpected cache-control: ${res.headers.get("cache-control")}`);
+  }
+  if (res.headers.get("pragma") !== "no-cache") {
+    throw new Error(`unexpected pragma: ${res.headers.get("pragma")}`);
+  }
+  if (res.headers.get("expires") !== "0") {
+    throw new Error(`unexpected expires: ${res.headers.get("expires")}`);
+  }
+
   const html = await res.text();
   if (!html.includes("Lineage invite-network")) {
     throw new Error("missing app title");

@@ -11,6 +11,20 @@ Deno.test("GET /account shows identity-first account view for authenticated user
     targetUserId: bob.userId,
     label: "bob-phone",
   });
+  await t.seedInvite({
+    type: "device",
+    inviterUserId: bob.userId,
+    targetUserId: bob.userId,
+    label: "bob-used",
+    usedAt: Date.now(),
+  });
+  const expiredInvite = await t.seedInvite({
+    type: "device",
+    inviterUserId: bob.userId,
+    targetUserId: bob.userId,
+    label: "bob-expired",
+    expiresAt: Date.now() - 1,
+  });
 
   const loginRes = await t.app.request("/test/login", {
     method: "POST",
@@ -38,30 +52,39 @@ Deno.test("GET /account shows identity-first account view for authenticated user
   if (!html.includes("<h2>Passkeys</h2>")) {
     throw new Error("missing passkeys section");
   }
-  if (!html.includes("Add another passkey")) {
-    throw new Error("missing add passkey action");
+  if (!html.includes("Enroll another passkey")) {
+    throw new Error("missing enroll passkey action");
   }
-  if (!html.includes("<h2>Invite user</h2>")) {
-    throw new Error("missing invite user section");
+  if (!html.includes("<h2>Invite users</h2>")) {
+    throw new Error("missing invite users section");
   }
-  if (!html.includes(`data-invite-token="${bobInvite}"`)) {
-    throw new Error("missing created invite");
+  if (!html.includes("<h3>Pending enrollments</h3>")) {
+    throw new Error("missing pending enrollments section");
+  }
+  if (!html.includes(`data-device-invite-token="${bobInvite}"`)) {
+    throw new Error("missing enrollment token");
+  }
+  if (!html.includes(`/enroll/passkey/${bobInvite}`)) {
+    throw new Error("missing enrollment link");
+  }
+  if (html.includes(`data-device-invite-token="${expiredInvite}"`)) {
+    throw new Error("expired enrollment should be hidden");
   }
   if (!html.includes("data-credential-id=")) {
     throw new Error("missing credentials");
   }
-  if (!html.includes('href="/invites/new?type=user"')) {
-    throw new Error("missing user invite link");
+  if (!html.includes('action="/invites/user"')) {
+    throw new Error("missing user invite action");
   }
-  if (html.includes("Create device invite")) {
-    throw new Error("should not use device invite wording on account page");
+  if (html.includes('/invites/new?type=device')) {
+    throw new Error("should not link to removed legacy enroll form page");
   }
   if (!html.includes('action="/logout"')) {
     throw new Error("missing logout form");
   }
 
   const passkeysIndex = html.indexOf("<h2>Passkeys</h2>");
-  const inviteIndex = html.indexOf("<h2>Invite user</h2>");
+  const inviteIndex = html.indexOf("<h2>Invite users</h2>");
   if (passkeysIndex === -1 || inviteIndex === -1 || passkeysIndex > inviteIndex) {
     throw new Error("passkeys section should come before invite user");
   }

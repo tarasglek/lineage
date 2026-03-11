@@ -40,7 +40,7 @@ Deno.test("sqlite passkey storage stores and reads users invites credentials and
 
   const invite = storage.getInvite("invite-1");
   if (!invite) throw new Error("expected stored invite");
-  if (invite.type !== "device") throw new Error(`expected device invite, got ${invite.type}`);
+  if (invite.type !== "device") throw new Error(`expected enrollment token, got ${invite.type}`);
   if (invite.targetUserId !== "user-1") throw new Error(`expected target user user-1, got ${invite.targetUserId}`);
 
   const credential = storage.getCredential("cred-1");

@@ -4,7 +4,7 @@ import {
   initializePasskeyStorageSqlite,
 } from "./src/passkey_storage_sqlite.ts";
 
-export async function createMainPasskeyApp(path = "./data/users.sqlite") {
+export async function createMainPasskeyApp(path = Deno.env.get("DEVICES_DB_PATH") ?? "./data/users.sqlite") {
   await initializePasskeyStorageSqlite(path);
   const storage = createSqlitePasskeyStorage(path);
 

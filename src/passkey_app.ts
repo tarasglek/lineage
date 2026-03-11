@@ -1,12 +1,6 @@
 import { type Context, Hono } from "@hono/hono";
 import { server as webauthnServer } from "@passwordless-id/webauthn";
 import {
-  createHash,
-  createPublicKey,
-  verify as verifySignature,
-} from "node:crypto";
-import { Buffer } from "node:buffer";
-import {
   isJwtExpiredError,
   signAuthSessionToken,
   signFlowToken,
@@ -14,40 +8,16 @@ import {
   verifyFlowToken,
 } from "./auth/jwt.ts";
 import type { PasskeyStorage } from "./passkey_storage.ts";
+import { renderQrSvg } from "./qr.ts";
 import {
   accountPage,
-  inviteCreatedPage,
-  invitesNewPage,
+  enrollPasskeyPage,
   landingPage,
   loginPage,
   loginPasskeyPage,
+  publicInvitePage,
   registerPage,
 } from "./views/pages.ts";
-
-function verifyAssertionSignature(input: {
-  publicKeyPem: string;
-  authenticatorData: string;
-  clientDataJSON: string;
-  signature: string;
-}) {
-  const authDataBytes = Buffer.from(
-    decodeBase64Url(input.authenticatorData),
-    "binary",
-  );
-  const clientDataBytes = Buffer.from(
-    decodeBase64Url(input.clientDataJSON),
-    "binary",
-  );
-  const clientDataHash = createHash("sha256").update(clientDataBytes).digest();
-  const signedBytes = Buffer.concat([authDataBytes, clientDataHash]);
-  const signatureBytes = Buffer.from(
-    decodeBase64Url(input.signature),
-    "binary",
-  );
-  const publicKey = createPublicKey(input.publicKeyPem);
-
-  return verifySignature("sha256", signedBytes, publicKey, signatureBytes);
-}
 
 function encodeBase64Url(value: string) {
   return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(
@@ -70,12 +40,16 @@ function coseAlgorithmToNumber(algorithm: string | number) {
   }
 }
 
-function isLikelyJsonPayload(base64url: string) {
-  try {
-    const decoded = decodeBase64Url(base64url);
-    return decoded.startsWith("{") || decoded.startsWith("[");
-  } catch {
-    return false;
+function numberToNamedAlgorithm(algorithm: number) {
+  switch (algorithm) {
+    case -7:
+      return "ES256" as const;
+    case -257:
+      return "RS256" as const;
+    case -8:
+      return "EdDSA" as const;
+    default:
+      throw new Error(`unsupported_algorithm:${algorithm}`);
   }
 }
 
@@ -140,7 +114,11 @@ async function getAuthenticatedUser(c: Context, storage: PasskeyStorage) {
   }
 }
 
-function authErrorResponse(c: Context) {
+function authErrorResponse(c: Context, event = "auth_missing_or_invalid") {
+  logAuthDiagnostic({
+    event,
+    host: getRequestWebAuthnContext(c).host,
+  });
   return c.redirect("/login", 302);
 }
 
@@ -148,8 +126,33 @@ function staticAsset(path: string, _contentType: string) {
   return Deno.readTextFileSync(new URL(path, import.meta.url));
 }
 
+function logAuthDiagnostic(input: Record<string, unknown>) {
+  console.log(JSON.stringify({
+    type: "auth-diagnostic",
+    time: new Date().toISOString(),
+    cwd: Deno.cwd(),
+    ...input,
+  }));
+}
+
+function storageSnapshot(storage: PasskeyStorage) {
+  return {
+    userCount: storage.listUsers().length,
+    credentialCount: storage.listCredentials().length,
+    inviteCount: storage.listInvites().length,
+    sessionCount: storage.listSessions().length,
+  };
+}
+
 export function createPasskeyApp(storage: PasskeyStorage) {
   const app = new Hono();
+
+  app.use("*", async (c, next) => {
+    await next();
+    c.header("cache-control", "no-store, max-age=0");
+    c.header("pragma", "no-cache");
+    c.header("expires", "0");
+  });
 
   app.get("/static/style.css", (c) => {
     return c.text(
@@ -188,6 +191,18 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     return c.text(
       staticAsset(
         "../static/passkey-login.js",
+        "application/javascript; charset=utf-8",
+      ),
+      200,
+      {
+        "content-type": "application/javascript; charset=utf-8",
+      },
+    );
+  });
+  app.get("/static/passkey-enroll.js", (c) => {
+    return c.text(
+      staticAsset(
+        "../static/passkey-enroll.js",
         "application/javascript; charset=utf-8",
       ),
       200,
@@ -250,6 +265,62 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     return c.html(registerPage(inviteToken, username));
   });
 
+  app.get("/invites/:token", (c) => {
+    const token = c.req.param("token");
+    const ctx = getRequestWebAuthnContext(c);
+    const invite = storage.getInvite(token);
+    if (!invite || invite.type !== "user") {
+      logAuthDiagnostic({
+        event: "invite_resource_not_found",
+        host: ctx.host,
+        inviteToken: token,
+        inviteFound: Boolean(invite),
+        inviteType: invite?.type,
+        ...storageSnapshot(storage),
+      });
+      return c.html("<!doctype html><html><body>not found</body></html>", 404);
+    }
+    const inviteUrl = new URL(`/invites/${encodeURIComponent(token)}`, ctx.origin);
+    logAuthDiagnostic({
+      event: "invite_resource_rendered",
+      host: ctx.host,
+      inviteToken: token,
+      inviteType: invite.type,
+      ...storageSnapshot(storage),
+    });
+    return c.html(publicInvitePage(token, inviteUrl.toString()));
+  });
+
+  app.get("/enroll/passkey/:token", (c) => {
+    const token = c.req.param("token");
+    const ctx = getRequestWebAuthnContext(c);
+    const invite = storage.getInvite(token);
+    if (!invite || invite.type !== "device") {
+      logAuthDiagnostic({
+        event: "enroll_resource_not_found",
+        host: ctx.host,
+        inviteToken: token,
+        inviteFound: Boolean(invite),
+        inviteType: invite?.type,
+        ...storageSnapshot(storage),
+      });
+      return c.html("<!doctype html><html><body>not found</body></html>", 404);
+    }
+    const inviteUrl = new URL(`/enroll/passkey/${encodeURIComponent(token)}`, ctx.origin);
+    logAuthDiagnostic({
+      event: "enroll_resource_rendered",
+      host: ctx.host,
+      inviteToken: token,
+      inviteType: invite.type,
+      ...storageSnapshot(storage),
+    });
+    return c.html(enrollPasskeyPage({
+      token,
+      inviteUrl: inviteUrl.toString(),
+      qrSvg: renderQrSvg(inviteUrl.toString()),
+    }));
+  });
+
   app.post("/register", async (c) => {
     const form = await c.req.formData();
     const inviteToken = String(form.get("inviteToken") ?? "");
@@ -273,68 +344,94 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     );
   });
 
-  app.get("/invites/new", async (c) => {
+  app.post("/invites/user", async (c) => {
     const currentUser = await getAuthenticatedUser(c, storage);
-    if (!currentUser) return authErrorResponse(c);
+    if (!currentUser) return authErrorResponse(c, "invite_user_auth_missing_or_invalid");
 
-    const type = c.req.query("type") ?? "user";
-    const targetUserId = c.req.query("targetUserId") ?? currentUser.id;
-    return c.html(invitesNewPage(type, targetUserId));
-  });
-
-  app.post("/invites", async (c) => {
-    const currentUser = await getAuthenticatedUser(c, storage);
-    if (!currentUser) return authErrorResponse(c);
-
-    const form = await c.req.formData();
     const token = crypto.randomUUID();
-    const type = String(form.get("type") ?? "user") as "user" | "device";
-    const targetUserId = String(form.get("targetUserId") ?? "") || undefined;
-    const label = String(form.get("label") ?? "");
-
-    if (type === "device" && targetUserId !== currentUser.id) {
-      return c.html("<!doctype html><html><body>forbidden</body></html>", 403);
-    }
-
     storage.putInvite({
       token,
-      type,
+      type: "user",
       inviterUserId: currentUser.id,
-      targetUserId: type === "device" ? currentUser.id : undefined,
-      label,
       expiresAt: Date.now() + 24 * 60 * 60 * 1000,
       usedAt: null,
     });
 
-    const origin = getRequestWebAuthnContext(c).origin;
-    const inviteUrl = new URL("/register", origin);
-    inviteUrl.searchParams.set("inviteToken", token);
+    logAuthDiagnostic({
+      event: "invite_user_created",
+      host: getRequestWebAuthnContext(c).host,
+      inviteToken: token,
+      userId: currentUser.id,
+      username: currentUser.username,
+      ...storageSnapshot(storage),
+    });
 
-    return c.html(inviteCreatedPage({
-      type,
+    return c.redirect(`/invites/${encodeURIComponent(token)}`, 303);
+  });
+
+  app.post("/enroll/passkey", async (c) => {
+    const currentUser = await getAuthenticatedUser(c, storage);
+    if (!currentUser) return authErrorResponse(c, "enroll_passkey_auth_missing_or_invalid");
+
+    const token = crypto.randomUUID();
+    storage.putInvite({
       token,
-      currentUserId: currentUser.id,
-      inviteUrl: inviteUrl.toString(),
-    }));
+      type: "device",
+      inviterUserId: currentUser.id,
+      targetUserId: currentUser.id,
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+      usedAt: null,
+    });
+
+    logAuthDiagnostic({
+      event: "enroll_created",
+      host: getRequestWebAuthnContext(c).host,
+      inviteToken: token,
+      userId: currentUser.id,
+      username: currentUser.username,
+      ...storageSnapshot(storage),
+    });
+
+    return c.redirect(`/enroll/passkey/${encodeURIComponent(token)}`, 303);
   });
 
   app.get("/account", async (c) => {
     const currentUser = await getAuthenticatedUser(c, storage);
-    if (!currentUser) return authErrorResponse(c);
+    if (!currentUser) return authErrorResponse(c, "account_auth_missing_or_invalid");
 
+    const origin = getRequestWebAuthnContext(c).origin;
     const invitedBy = currentUser.invitedBy ?? "";
+    const now = Date.now();
     const invites = storage.listInvites().filter((invite) =>
-      invite.inviterUserId === currentUser.id
+      invite.inviterUserId === currentUser.id && invite.type === "user"
+    );
+    const deviceInvites = storage.listInvites().filter((invite) =>
+      invite.type === "device" &&
+      invite.inviterUserId === currentUser.id &&
+      invite.targetUserId === currentUser.id &&
+      invite.expiresAt > now
     );
     const credentials = storage.listCredentials().filter((credential) =>
       credential.userId === currentUser.id
     );
+
+    logAuthDiagnostic({
+      event: "account_view_success",
+      host: getRequestWebAuthnContext(c).host,
+      userId: currentUser.id,
+      username: currentUser.username,
+      ...storageSnapshot(storage),
+    });
 
     return c.html(accountPage({
       username: currentUser.username,
       userId: currentUser.id,
       invitedBy,
       credentials: credentials.map((credential) => credential.id),
+      deviceInvites: deviceInvites.map((invite) => ({
+        token: invite.token,
+        inviteUrl: `${origin}/enroll/passkey/${encodeURIComponent(invite.token)}`,
+      })),
       invites: invites.map((invite) => ({
         token: invite.token,
         type: invite.type,
@@ -355,6 +452,7 @@ export function createPasskeyApp(storage: PasskeyStorage) {
 
     const invite = storage.getInvite(inviteToken);
     if (!invite) return c.json({ error: "invite_not_found" }, 404);
+    if (invite.type !== "user") return c.json({ error: "wrong_invite_type" }, 409);
     if (invite.usedAt) return c.json({ error: "invite_already_used" }, 409);
     if (invite.expiresAt <= Date.now()) {
       return c.json({ error: "invite_expired" }, 410);
@@ -362,18 +460,11 @@ export function createPasskeyApp(storage: PasskeyStorage) {
 
     const webauthn = getRequestWebAuthnContext(c);
     const challenge = encodeBase64Url(crypto.randomUUID());
-    const userId = invite.type === "device"
-      ? invite.targetUserId
-      : crypto.randomUUID();
-    if (!userId) return c.json({ error: "invite_missing_target_user" }, 400);
-
-    const effectiveUsername = invite.type === "device"
-      ? storage.getUser(userId)?.username ?? username
-      : username;
+    const userId = crypto.randomUUID();
     const flowToken = await signFlowToken({
       flowType: "register",
       challenge,
-      username: effectiveUsername,
+      username,
       inviteToken,
       userId,
     });
@@ -384,8 +475,58 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       rp: { id: webauthn.rpId, name: "Lineage invite-network" },
       user: {
         id: userId,
-        name: effectiveUsername,
-        displayName: effectiveUsername,
+        name: username,
+        displayName: username,
+      },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+      timeout: 60000,
+      attestation: "none",
+      excludeCredentials: [],
+      authenticatorSelection: {
+        residentKey: "preferred",
+        userVerification: "preferred",
+      },
+    });
+  });
+
+  app.post("/enroll/passkey/begin", async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    if (body === undefined) return c.json({ error: "invalid_json" }, 400);
+
+    const inviteToken = body?.inviteToken;
+    if (!inviteToken) return c.json({ error: "missing_invite_token" }, 400);
+
+    const invite = storage.getInvite(inviteToken);
+    if (!invite) return c.json({ error: "invite_not_found" }, 404);
+    if (invite.type !== "device") return c.json({ error: "wrong_invite_type" }, 409);
+    if (invite.usedAt) return c.json({ error: "invite_already_used" }, 409);
+    if (invite.expiresAt <= Date.now()) {
+      return c.json({ error: "invite_expired" }, 410);
+    }
+    if (!invite.targetUserId) {
+      return c.json({ error: "invite_missing_target_user" }, 400);
+    }
+    const user = storage.getUser(invite.targetUserId);
+    if (!user) return c.json({ error: "device_invite_user_not_found" }, 404);
+
+    const webauthn = getRequestWebAuthnContext(c);
+    const challenge = encodeBase64Url(crypto.randomUUID());
+    const flowToken = await signFlowToken({
+      flowType: "register",
+      challenge,
+      username: user.username,
+      inviteToken,
+      userId: user.id,
+    });
+
+    return c.json({
+      challenge,
+      flowToken,
+      rp: { id: webauthn.rpId, name: "Lineage invite-network" },
+      user: {
+        id: user.id,
+        name: user.username,
+        displayName: user.username,
       },
       pubKeyCredParams: [{ type: "public-key", alg: -7 }],
       timeout: 60000,
@@ -401,6 +542,13 @@ export function createPasskeyApp(storage: PasskeyStorage) {
   app.post("/register/complete", async (c) => {
     const body = await c.req.json().catch(() => undefined);
     if (body === undefined) return c.json({ error: "invalid_json" }, 400);
+
+    logAuthDiagnostic({
+      event: "register_complete_begin",
+      host: getRequestWebAuthnContext(c).host,
+      credentialId: body?.id ? String(body.id) : undefined,
+      ...storageSnapshot(storage),
+    });
 
     const flowToken = body?.flowToken;
     if (!flowToken) return c.json({ error: "missing_flow_token" }, 400);
@@ -430,77 +578,76 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     const invite = flow.inviteToken
       ? storage.getInvite(flow.inviteToken)
       : undefined;
+    logAuthDiagnostic({
+      event: "register_complete_flow_verified",
+      host: webauthn.host,
+      credentialId: body?.id ? String(body.id) : undefined,
+      userId: flow.userId,
+      username: flow.username,
+      inviteToken: flow.inviteToken,
+      inviteFound: Boolean(invite),
+      inviteType: invite?.type,
+      inviteUsedAt: invite?.usedAt ?? null,
+      ...storageSnapshot(storage),
+    });
     if (!invite || invite.usedAt) {
       return c.json({ error: "invite_already_used" }, 409);
     }
+    if (invite.type !== "user") {
+      return c.json({ error: "wrong_invite_type" }, 409);
+    }
+
+    if (
+      !body?.response?.authenticatorData ||
+      !body?.response?.publicKey ||
+      typeof body?.response?.publicKeyAlgorithm === "undefined"
+    ) {
+      return c.json({ error: "invalid_attestation" }, 400);
+    }
 
     let credentialRecord;
-    if (
-      body?.response?.authenticatorData &&
-      body?.response?.publicKey &&
-      typeof body?.response?.publicKeyAlgorithm !== "undefined" &&
-      !isLikelyJsonPayload(attestationObject)
-    ) {
-      try {
-        const info = await webauthnServer.verifyRegistration({
-          id: body.id,
-          rawId: body.rawId,
-          type: body.type,
-          authenticatorAttachment: body.authenticatorAttachment,
-          clientExtensionResults: body.clientExtensionResults ?? {},
-          response: {
-            attestationObject,
-            authenticatorData: body.response.authenticatorData,
-            clientDataJSON,
-            publicKey: body.response.publicKey,
-            publicKeyAlgorithm: body.response.publicKeyAlgorithm,
-            transports: body.response.transports ?? [],
-          },
-          user: {
-            id: flow.userId,
-            name: flow.username,
-            displayName: flow.username,
-          },
-        }, {
-          challenge: flow.challenge,
-          origin: webauthn.origin,
-          domain: webauthn.rpId,
-        });
-        credentialRecord = {
-          id: body.id,
-          publicKey: info.credential.publicKey,
-          algorithm: coseAlgorithmToNumber(info.credential.algorithm),
-          signCount: info.authenticator.counter,
-          userId: flow.userId,
-          transports: info.credential.transports,
-        };
-      } catch (error) {
-        const message = String(error instanceof Error ? error.message : error);
-        if (message.includes("origin")) {
-          return c.json({ error: "origin_mismatch" }, 400);
-        }
-        if (message.includes("RpIdHash")) {
-          return c.json({ error: "rp_id_mismatch" }, 400);
-        }
-        return c.json({ error: "invalid_attestation" }, 400);
-      }
-    } else {
-      const attestation = JSON.parse(decodeBase64Url(attestationObject));
-      if (clientData.origin !== webauthn.origin) {
-        return c.json({ error: "origin_mismatch" }, 400);
-      }
-      if (attestation?.authData?.rpId !== webauthn.rpId) {
-        return c.json({ error: "rp_id_mismatch" }, 400);
-      }
+    try {
+      const info = await webauthnServer.verifyRegistration({
+        id: body.id,
+        rawId: body.rawId,
+        type: body.type,
+        authenticatorAttachment: body.authenticatorAttachment,
+        clientExtensionResults: body.clientExtensionResults ?? {},
+        response: {
+          attestationObject,
+          authenticatorData: body.response.authenticatorData,
+          clientDataJSON,
+          publicKey: body.response.publicKey,
+          publicKeyAlgorithm: body.response.publicKeyAlgorithm,
+          transports: body.response.transports ?? [],
+        },
+        user: {
+          id: flow.userId,
+          name: flow.username,
+          displayName: flow.username,
+        },
+      }, {
+        challenge: flow.challenge,
+        origin: webauthn.origin,
+        domain: webauthn.rpId,
+      });
       credentialRecord = {
         id: body.id,
-        publicKey: attestation.authData.publicKey,
-        publicKeyPem: attestation.authData.publicKeyPem,
-        algorithm: attestation.authData.algorithm,
-        signCount: attestation.authData.signCount,
+        publicKey: info.credential.publicKey,
+        algorithm: coseAlgorithmToNumber(info.credential.algorithm),
+        signCount: info.authenticator.counter,
         userId: flow.userId,
-        transports: attestation.authData.transports,
+        transports: info.credential.transports,
       };
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error);
+      if (message.includes("origin")) {
+        return c.json({ error: "origin_mismatch" }, 400);
+      }
+      if (message.includes("RpIdHash")) {
+        return c.json({ error: "rp_id_mismatch" }, 400);
+      }
+      return c.json({ error: "invalid_attestation" }, 400);
     }
 
     try {
@@ -522,8 +669,27 @@ export function createPasskeyApp(storage: PasskeyStorage) {
         storage.putCredential(credentialRecord);
         storage.putInvite({ ...invite, usedAt: Date.now() });
       });
+      logAuthDiagnostic({
+        event: "register_complete_persisted",
+        host: webauthn.host,
+        credentialId: credentialRecord.id,
+        userId: flow.userId,
+        username: flow.username,
+        inviteToken: flow.inviteToken,
+        ...storageSnapshot(storage),
+      });
     } catch (error) {
       const message = String(error instanceof Error ? error.message : error);
+      logAuthDiagnostic({
+        event: "register_complete_error",
+        host: webauthn.host,
+        credentialId: body?.id ? String(body.id) : undefined,
+        userId: flow.userId,
+        username: flow.username,
+        inviteToken: flow.inviteToken,
+        error: message,
+        ...storageSnapshot(storage),
+      });
       if (message === "username_taken") {
         return c.json({ error: "username_taken" }, 409);
       }
@@ -532,6 +698,184 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       }
       throw error;
     }
+
+    logAuthDiagnostic({
+      event: "register_complete_success",
+      host: webauthn.host,
+      credentialId: body.id,
+      userId: flow.userId,
+      username: flow.username,
+      inviteToken: flow.inviteToken,
+      ...storageSnapshot(storage),
+    });
+
+    const authToken = await signAuthSessionToken({
+      userId: flow.userId,
+      username: flow.username,
+    });
+    c.header("set-cookie", authCookieValue(authToken, webauthn.isSecure));
+    return c.json({
+      credentialId: body.id,
+      userId: flow.userId,
+      username: flow.username,
+    });
+  });
+
+  app.post("/enroll/passkey/complete", async (c) => {
+    const body = await c.req.json().catch(() => undefined);
+    if (body === undefined) return c.json({ error: "invalid_json" }, 400);
+
+    logAuthDiagnostic({
+      event: "enroll_complete_begin",
+      host: getRequestWebAuthnContext(c).host,
+      credentialId: body?.id ? String(body.id) : undefined,
+      ...storageSnapshot(storage),
+    });
+
+    const flowToken = body?.flowToken;
+    if (!flowToken) return c.json({ error: "missing_flow_token" }, 400);
+
+    const clientDataJSON = body?.response?.clientDataJSON;
+    const attestationObject = body?.response?.attestationObject;
+    if (!clientDataJSON || !attestationObject) {
+      return c.json({ error: "invalid_attestation" }, 400);
+    }
+
+    let flow;
+    try {
+      flow = await verifyFlowToken(flowToken, "register");
+    } catch (error) {
+      if (isJwtExpiredError(error)) {
+        return c.json({ error: "flow_token_expired" }, 400);
+      }
+      return c.json({ error: "invalid_flow_token" }, 400);
+    }
+
+    const clientData = JSON.parse(decodeBase64Url(clientDataJSON));
+    if (clientData?.challenge !== flow.challenge) {
+      return c.json({ error: "registration_session_not_found" }, 400);
+    }
+
+    const webauthn = getRequestWebAuthnContext(c);
+    const invite = flow.inviteToken
+      ? storage.getInvite(flow.inviteToken)
+      : undefined;
+    logAuthDiagnostic({
+      event: "enroll_complete_flow_verified",
+      host: webauthn.host,
+      credentialId: body?.id ? String(body.id) : undefined,
+      userId: flow.userId,
+      username: flow.username,
+      inviteToken: flow.inviteToken,
+      inviteFound: Boolean(invite),
+      inviteType: invite?.type,
+      inviteUsedAt: invite?.usedAt ?? null,
+      ...storageSnapshot(storage),
+    });
+    if (!invite || invite.usedAt) {
+      return c.json({ error: "invite_already_used" }, 409);
+    }
+    if (invite.type !== "device") {
+      return c.json({ error: "wrong_invite_type" }, 409);
+    }
+
+    if (
+      !body?.response?.authenticatorData ||
+      !body?.response?.publicKey ||
+      typeof body?.response?.publicKeyAlgorithm === "undefined"
+    ) {
+      return c.json({ error: "invalid_attestation" }, 400);
+    }
+
+    let credentialRecord;
+    try {
+      const info = await webauthnServer.verifyRegistration({
+        id: body.id,
+        rawId: body.rawId,
+        type: body.type,
+        authenticatorAttachment: body.authenticatorAttachment,
+        clientExtensionResults: body.clientExtensionResults ?? {},
+        response: {
+          attestationObject,
+          authenticatorData: body.response.authenticatorData,
+          clientDataJSON,
+          publicKey: body.response.publicKey,
+          publicKeyAlgorithm: body.response.publicKeyAlgorithm,
+          transports: body.response.transports ?? [],
+        },
+        user: {
+          id: flow.userId,
+          name: flow.username,
+          displayName: flow.username,
+        },
+      }, {
+        challenge: flow.challenge,
+        origin: webauthn.origin,
+        domain: webauthn.rpId,
+      });
+      credentialRecord = {
+        id: body.id,
+        publicKey: info.credential.publicKey,
+        algorithm: coseAlgorithmToNumber(info.credential.algorithm),
+        signCount: info.authenticator.counter,
+        userId: flow.userId,
+        transports: info.credential.transports,
+      };
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error);
+      if (message.includes("origin")) {
+        return c.json({ error: "origin_mismatch" }, 400);
+      }
+      if (message.includes("RpIdHash")) {
+        return c.json({ error: "rp_id_mismatch" }, 400);
+      }
+      return c.json({ error: "invalid_attestation" }, 400);
+    }
+
+    try {
+      storage.transaction(() => {
+        if (!storage.getUser(flow.userId)) {
+          throw new Error("device_invite_user_not_found");
+        }
+        storage.putCredential(credentialRecord);
+        storage.putInvite({ ...invite, usedAt: Date.now() });
+      });
+      logAuthDiagnostic({
+        event: "enroll_complete_persisted",
+        host: webauthn.host,
+        credentialId: credentialRecord.id,
+        userId: flow.userId,
+        username: flow.username,
+        inviteToken: flow.inviteToken,
+        ...storageSnapshot(storage),
+      });
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error);
+      logAuthDiagnostic({
+        event: "enroll_complete_error",
+        host: webauthn.host,
+        credentialId: body?.id ? String(body.id) : undefined,
+        userId: flow.userId,
+        username: flow.username,
+        inviteToken: flow.inviteToken,
+        error: message,
+        ...storageSnapshot(storage),
+      });
+      if (message === "device_invite_user_not_found") {
+        return c.json({ error: "device_invite_user_not_found" }, 404);
+      }
+      throw error;
+    }
+
+    logAuthDiagnostic({
+      event: "enroll_complete_success",
+      host: webauthn.host,
+      credentialId: body.id,
+      userId: flow.userId,
+      username: flow.username,
+      inviteToken: flow.inviteToken,
+      ...storageSnapshot(storage),
+    });
 
     const authToken = await signAuthSessionToken({
       userId: flow.userId,
@@ -553,13 +897,37 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     const webauthn = getRequestWebAuthnContext(c);
     const challenge = encodeBase64Url(crypto.randomUUID());
 
+    logAuthDiagnostic({
+      event: "login_begin_start",
+      host: webauthn.host,
+      username: username || undefined,
+      ...storageSnapshot(storage),
+    });
+
     if (username) {
       const user = storage.findUserByUsername(username);
+      logAuthDiagnostic({
+        event: "login_begin_username_lookup",
+        host: webauthn.host,
+        username,
+        userFound: Boolean(user),
+        userId: user?.id,
+        ...storageSnapshot(storage),
+      });
       if (!user) return c.json({ error: "user_not_found" }, 404);
 
       const credentials = storage.listCredentials().filter((credential) =>
         credential.userId === user.id
       );
+      logAuthDiagnostic({
+        event: "login_begin_credentials_for_user",
+        host: webauthn.host,
+        username,
+        userId: user.id,
+        allowCredentialCount: credentials.length,
+        allowCredentialIds: credentials.map((credential) => credential.id),
+        ...storageSnapshot(storage),
+      });
       const flowToken = await signFlowToken({
         flowType: "login",
         challenge,
@@ -581,6 +949,12 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       });
     }
 
+    logAuthDiagnostic({
+      event: "login_begin_discoverable",
+      host: webauthn.host,
+      ...storageSnapshot(storage),
+    });
+
     const flowToken = await signFlowToken({
       flowType: "login",
       challenge,
@@ -601,14 +975,35 @@ export function createPasskeyApp(storage: PasskeyStorage) {
     const body = await c.req.json().catch(() => undefined);
     if (body === undefined) return c.json({ error: "invalid_json" }, 400);
 
+    logAuthDiagnostic({
+      event: "login_complete_begin",
+      host: getRequestWebAuthnContext(c).host,
+      credentialId: body?.id ? String(body.id) : undefined,
+      ...storageSnapshot(storage),
+    });
+
     const flowToken = body?.flowToken;
-    if (!flowToken) return c.json({ error: "missing_flow_token" }, 400);
+    if (!flowToken) {
+      logAuthDiagnostic({
+        event: "login_complete_missing_flow_token",
+        host: getRequestWebAuthnContext(c).host,
+        credentialId: body?.id ? String(body.id) : undefined,
+        ...storageSnapshot(storage),
+      });
+      return c.json({ error: "missing_flow_token" }, 400);
+    }
 
     const clientDataJSON = body?.response?.clientDataJSON;
     const authenticatorData = body?.response?.authenticatorData;
     const signature = body?.response?.signature;
     const userHandle = body?.response?.userHandle;
     if (!clientDataJSON || !authenticatorData || !signature || !userHandle) {
+      logAuthDiagnostic({
+        event: "login_complete_invalid_assertion",
+        host: getRequestWebAuthnContext(c).host,
+        credentialId: body?.id ? String(body.id) : undefined,
+        ...storageSnapshot(storage),
+      });
       return c.json({ error: "invalid_assertion" }, 400);
     }
 
@@ -617,58 +1012,240 @@ export function createPasskeyApp(storage: PasskeyStorage) {
       flow = await verifyFlowToken(flowToken, "login");
     } catch (error) {
       if (isJwtExpiredError(error)) {
+        logAuthDiagnostic({
+          event: "login_complete_flow_token_expired",
+          host: getRequestWebAuthnContext(c).host,
+          credentialId: body?.id ? String(body.id) : undefined,
+          ...storageSnapshot(storage),
+        });
         return c.json({ error: "flow_token_expired" }, 400);
       }
+      logAuthDiagnostic({
+        event: "login_complete_invalid_flow_token",
+        host: getRequestWebAuthnContext(c).host,
+        credentialId: body?.id ? String(body.id) : undefined,
+        ...storageSnapshot(storage),
+      });
       return c.json({ error: "invalid_flow_token" }, 400);
     }
 
     const clientData = JSON.parse(decodeBase64Url(clientDataJSON));
     const webauthn = getRequestWebAuthnContext(c);
     if (clientData?.challenge !== flow.challenge) {
+      logAuthDiagnostic({
+        event: "login_complete_authentication_session_not_found",
+        host: webauthn.host,
+        credentialId: body?.id ? String(body.id) : undefined,
+        flowUserId: flow.userId,
+        flowUsername: flow.username,
+        ...storageSnapshot(storage),
+      });
       return c.json({ error: "authentication_session_not_found" }, 400);
     }
     if (clientData.origin !== webauthn.origin) {
+      logAuthDiagnostic({
+        event: "login_complete_origin_mismatch",
+        host: webauthn.host,
+        credentialId: body?.id ? String(body.id) : undefined,
+        flowUserId: flow.userId,
+        flowUsername: flow.username,
+        ...storageSnapshot(storage),
+      });
       return c.json({ error: "origin_mismatch" }, 400);
     }
 
     const credential = storage.getCredential(body.id);
-    if (!credential) return c.json({ error: "credential_not_found" }, 404);
-    if (!credential.publicKeyPem) {
+    logAuthDiagnostic({
+      event: "login_complete_credential_lookup",
+      host: webauthn.host,
+      credentialId: body.id,
+      credentialFound: Boolean(credential),
+      credentialUserId: credential?.userId,
+      credentialSignCount: credential?.signCount,
+      flowUserId: flow.userId,
+      flowUsername: flow.username,
+      ...storageSnapshot(storage),
+    });
+    if (!credential) {
+      logAuthDiagnostic({
+        event: "login_complete_credential_not_found",
+        host: webauthn.host,
+        credentialId: body.id,
+        flowUserId: flow.userId,
+        flowUsername: flow.username,
+        ...storageSnapshot(storage),
+      });
+      return c.json({ error: "credential_not_found" }, 404);
+    }
+    if (!credential.publicKey) {
+      logAuthDiagnostic({
+        event: "login_complete_credential_missing_public_key",
+        host: webauthn.host,
+        credentialId: credential.id,
+        credentialUserId: credential.userId,
+        ...storageSnapshot(storage),
+      });
       return c.json({ error: "credential_missing_public_key" }, 400);
     }
-
-    const authData = JSON.parse(decodeBase64Url(authenticatorData));
-    if (authData.rpId !== webauthn.rpId) {
-      return c.json({ error: "rp_id_mismatch" }, 400);
+    let authInfo;
+    try {
+      authInfo = await webauthnServer.verifyAuthentication({
+        id: body.id,
+        rawId: body.rawId,
+        type: body.type,
+        authenticatorAttachment: body.authenticatorAttachment,
+        clientExtensionResults: body.clientExtensionResults ?? {},
+        response: {
+          clientDataJSON,
+          authenticatorData,
+          signature,
+          userHandle,
+        },
+      }, {
+        id: credential.id,
+        publicKey: credential.publicKey,
+        algorithm: numberToNamedAlgorithm(credential.algorithm),
+        transports: credential.transports ?? ["internal"],
+      }, {
+        challenge: flow.challenge,
+        origin: webauthn.origin,
+        domain: webauthn.rpId,
+        userVerified: false,
+        counter: credential.signCount,
+      });
+    } catch (error) {
+      const message = String(error instanceof Error ? error.message : error);
+      if (message.includes("unsupported_algorithm")) {
+        logAuthDiagnostic({
+          event: "login_complete_credential_missing_public_key",
+          host: webauthn.host,
+          credentialId: credential.id,
+          credentialUserId: credential.userId,
+          credentialAlgorithm: credential.algorithm,
+          ...storageSnapshot(storage),
+        });
+        return c.json({ error: "credential_missing_public_key" }, 400);
+      }
+      if (message.includes("RpIdHash")) {
+        logAuthDiagnostic({
+          event: "login_complete_rp_id_mismatch",
+          host: webauthn.host,
+          credentialId: credential.id,
+          credentialUserId: credential.userId,
+          ...storageSnapshot(storage),
+        });
+        return c.json({ error: "rp_id_mismatch" }, 400);
+      }
+      if (message.includes("counter")) {
+        logAuthDiagnostic({
+          event: "login_complete_sign_count_rollback",
+          host: webauthn.host,
+          credentialId: credential.id,
+          credentialUserId: credential.userId,
+          credentialSignCount: credential.signCount,
+          ...storageSnapshot(storage),
+        });
+        return c.json({ error: "sign_count_rollback" }, 400);
+      }
+      if (message.includes("Invalid signature")) {
+        logAuthDiagnostic({
+          event: "login_complete_invalid_signature",
+          host: webauthn.host,
+          credentialId: credential.id,
+          credentialUserId: credential.userId,
+          ...storageSnapshot(storage),
+        });
+        return c.json({ error: "invalid_signature" }, 400);
+      }
+      if (message.includes("challenge")) {
+        logAuthDiagnostic({
+          event: "login_complete_authentication_session_not_found",
+          host: webauthn.host,
+          credentialId: body?.id ? String(body.id) : undefined,
+          flowUserId: flow.userId,
+          flowUsername: flow.username,
+          ...storageSnapshot(storage),
+        });
+        return c.json({ error: "authentication_session_not_found" }, 400);
+      }
+      if (message.includes("origin")) {
+        logAuthDiagnostic({
+          event: "login_complete_origin_mismatch",
+          host: webauthn.host,
+          credentialId: body?.id ? String(body.id) : undefined,
+          flowUserId: flow.userId,
+          flowUsername: flow.username,
+          ...storageSnapshot(storage),
+        });
+        return c.json({ error: "origin_mismatch" }, 400);
+      }
+      logAuthDiagnostic({
+        event: "login_complete_invalid_assertion",
+        host: webauthn.host,
+        credentialId: body?.id ? String(body.id) : undefined,
+        error: message,
+        ...storageSnapshot(storage),
+      });
+      return c.json({ error: "invalid_assertion" }, 400);
     }
+
     if (decodeBase64Url(userHandle) !== credential.userId) {
+      logAuthDiagnostic({
+        event: "login_complete_user_handle_mismatch",
+        host: webauthn.host,
+        credentialId: credential.id,
+        credentialUserId: credential.userId,
+        ...storageSnapshot(storage),
+      });
       return c.json({ error: "user_handle_mismatch" }, 403);
     }
     if (flow.userId && credential.userId !== flow.userId) {
+      logAuthDiagnostic({
+        event: "login_complete_credential_not_owned_by_user",
+        host: webauthn.host,
+        credentialId: credential.id,
+        credentialUserId: credential.userId,
+        flowUserId: flow.userId,
+        flowUsername: flow.username,
+        ...storageSnapshot(storage),
+      });
       return c.json({ error: "credential_not_owned_by_user" }, 403);
     }
-    if (authData.signCount <= credential.signCount) {
-      return c.json({ error: "sign_count_rollback" }, 400);
-    }
-
-    let signatureValid = false;
-    try {
-      signatureValid = verifyAssertionSignature({
-        publicKeyPem: credential.publicKeyPem,
-        authenticatorData,
-        clientDataJSON,
-        signature,
-      });
-    } catch {
-      signatureValid = false;
-    }
-    if (!signatureValid) return c.json({ error: "invalid_signature" }, 400);
 
     const user = storage.getUser(credential.userId);
-    if (!user) return c.json({ error: "user_not_found" }, 404);
+    logAuthDiagnostic({
+      event: "login_complete_user_lookup",
+      host: webauthn.host,
+      credentialId: credential.id,
+      credentialUserId: credential.userId,
+      userFound: Boolean(user),
+      userId: user?.id,
+      username: user?.username,
+      ...storageSnapshot(storage),
+    });
+    if (!user) {
+      logAuthDiagnostic({
+        event: "login_complete_user_not_found",
+        host: webauthn.host,
+        credentialId: credential.id,
+        credentialUserId: credential.userId,
+        ...storageSnapshot(storage),
+      });
+      return c.json({ error: "user_not_found" }, 404);
+    }
 
-    storage.putCredential({ ...credential, signCount: authData.signCount });
+    storage.putCredential({ ...credential, signCount: authInfo.counter });
     storage.recordSession({ userId: credential.userId, createdAt: Date.now() });
+
+    logAuthDiagnostic({
+      event: "login_complete_success",
+      host: webauthn.host,
+      credentialId: credential.id,
+      userId: user.id,
+      username: user.username,
+      signCount: authInfo.counter,
+      ...storageSnapshot(storage),
+    });
 
     const authToken = await signAuthSessionToken({
       userId: user.id,
